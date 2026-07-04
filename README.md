@@ -62,9 +62,9 @@ handlerProperties.callFunction(initializeFunctions, 0);
 handlerProperties.printBlock(initializeFunctions);
 ```
 
-```markdown
-```text A lightweight, template-driven task execution and logging framework designed for Arduino microcontrollers. It allows for conditional invocation of function pointers, safe decoupling of task logic, memory-allocated handle isolation, and macro-based file logging.```
 
+A lightweight, template-driven task execution and logging framework designed for Arduino microcontrollers. It allows for conditional invocation of function pointers, safe decoupling of task logic, memory-allocated handle isolation, and macro-based file logging.
+```markdown
                +=================================================+
                |               HandlerProperties                 |
                +=================================================+
