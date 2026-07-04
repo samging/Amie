@@ -21,17 +21,17 @@ Provides a straightforward interface for creating devices and managing their ope
 * **Configure (Beta):** An essential hub for viewing ongoing device processes and debugging (currently a work in progress).
 * **Manage:** Dedicated space to configure device names, ports, and endpoints, as well as view live device logs.
 
-<img src="Screenshot%202026-07-04%20at%2020.51.09.png" alt="Main Interface" max-width="500px" width="100%" />
+<img src="Screenshot%202026-07-04%20at%2020.51.09.png" alt="Main Interface" max-width="500px" width="50%" />
 
 ### 2. Packages Overview
 Allows you to download online firmware packages directly from a central repository. While custom package uploads are not yet supported, the download and deployment system is fully functional.
 
-<img src="Screenshot%202026-07-04%20at%2020.52.32.png" alt="Task Flow" max-width="500px" width="100%" />
+<img src="Screenshot%202026-07-04%20at%2020.52.32.png" alt="Task Flow" max-width="500px" width="50%"/>
 
 ### 3. Terminal Shell (Upcoming)
 An integrated runtime terminal where you will be able to view live stream logs, issue interrupt commands, and interact directly with Arduino boards during execution.
 
-<img src="Screenshot%202026-07-04%20at%2020.53.07.png" alt="Logs and Execution" max-width="500px" width="100%" />
+<img src="Screenshot%202026-07-04%20at%2020.53.07.png" alt="Logs and Execution" max-width="500px" width="50%" />
 
 ---
 
