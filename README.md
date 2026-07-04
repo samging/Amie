@@ -1,5 +1,10 @@
-Your Markdown file is ready
-[file-tag: code-generated-file-0-1783191489994907350]
+## Screenshots
+
+![Main Interface](Screenshot%202026-07-04%20at%2020.51.09.png)
+
+![Task Flow](Screenshot%202026-07-04%20at%2020.52.32.png)
+
+![Logs and Execution](Screenshot%202026-07-04%20at%2020.53.07.png)
 
 Here is the exact layout preserved inside the downloadable file, properly wrapped inside a markdown code block so it will render correctly with fixed-width typography on GitHub, GitLab, or any local editor:
 
