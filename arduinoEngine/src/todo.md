@@ -1,6 +1,3 @@
-!Fix memory leaks,
-[1] - terminate pool by Id.
-[2] - check on interrupt class.
-[3] - connect as Endpoint Interface.
-
-
+- missing implementation: 
+    write handle checking for nullptr and bounds,
+    falseCalling: misses interaction with global dispatch variable.

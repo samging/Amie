@@ -1,56 +1,253 @@
-struct processWindows {
-  TaskResponse multipleReponses[10];
-}
+#include <Arduino.h>
 
-struct BaseTrait {
-  virtual void printSelf() = 0;
-}; 
+template<typename T> struct TaskResponse;
+struct CallStruct;
+template <typename T, size_t N, size_t C> struct CodeBlock;
+template <typename T, size_t N, size_t C> struct IndentHandler;
 
-template<typename T> struct TaskResponse : public BaseTrait {
-  bool arraylike;
-  size_t size; 
-  T value;
-  const char *type;
-
-  void printSelf() override {
-    Serial.println(value);
-  }
+class BaseTrait {
+public:
+    virtual void printSelf() = 0;
+    virtual ~BaseTrait() = default;
 };
 
-typedef TaskResponse<int> ResponseSignInt;
+template <typename T> struct FunctionResult;
+template <typename R, typename... Args>
+struct FunctionResult<R(*)(Args...)> {
+    using type = R;
+};
 
-//////////////////////////////
-//////////////////////////////
-//////////////////////////////
+template<typename T> struct TaskResponse : public BaseTrait {
+    bool arraylike;
+    const char* results[30];
+    T value;
+    using value_type = T;
 
-ResponseSignInt function1(ResponseSignInt arguments){
-  if ( arguments.arraylike == true) {}
-  for (int i = 0; i > arguments.size; i++) {}
-  arguments.printSelf();
-  
-  if (strcmp(arguments.type, "int") == 0) { 
-    Serial.println("everything matches!");
-  }
-
-  return arguments;
-}
-
-//////////////////////////////
-//////////////////////////////
-//////////////////////////////
-
-
+    void printSelf() override {
+        Serial.println(value);
+    }
+};
 
 typedef int FNint;
 typedef FNint (*ArduinoTaskInt)();
 
-struct IndentHandler { 
- const unsigned int id;
- callStruct holdRecord; 
- codeBlock holdTask;
+struct processWindows {
+    BaseTrait* multipleResponses[10];
 };
 
-#define STRINGIFY(x) #x 
+struct CallStruct {
+    const char* ref_calls[64];
+    const char* index_calls[64];
+    int static_index_msg = 0;
+    int static_index_idx = 0;
+};
+
+template <typename T, size_t N, size_t C> struct CodeBlock {
+    bool invoke;
+    T task[N];
+    TaskResponse<typename FunctionResult<T>::type> taskResponses[N]; // ::type gets us encapsulated value of (int*)()
+    bool booleanTasks[C];
+    bool falseCalling[C];
+};
+
+template <typename T, size_t N, size_t C>
+struct IndentHandler {
+    unsigned int id[C];
+    CallStruct *holdRecord;
+    CodeBlock<T, N, C> *holdTask;
+};
+
+typedef int (*intFn)();
+typedef int (*intFnOne)(int);
+typedef int (*intFnTwo)(int, int);
+
+class HandlerProperties {
+public:
+    template <typename T, size_t N, size_t C>
+    void freeHandle(IndentHandler<T, N, C> *handler) {
+        //free allocated memory, has to loop also inner structures
+        if (handler != nullptr) {
+            if (handler->holdRecord != nullptr) {
+                for (int i = 0; i < handler->holdRecord->static_index_idx; i++) {
+                    free((void*)handler->holdRecord->index_calls[i]);
+                }
+                free(handler->holdRecord);
+            }
+            if (handler->holdTask != nullptr) {
+                free(handler->holdTask);
+            }
+            free(handler);
+        }
+    }
+
+    template <typename T, size_t N, size_t C>
+    IndentHandler<T, N, C> *allocateHandle() {
+        //allocate handle, (initialized at the start of the program).
+        using HandlerType = IndentHandler<T, N, C>;
+        HandlerType *handler = (HandlerType *)malloc(sizeof(HandlerType));
+        if (handler == nullptr) { return nullptr; }
+        handler->holdRecord = (CallStruct*)malloc(sizeof(CallStruct));
+        handler->holdTask = (CodeBlock<T, N, C>*)malloc(sizeof(CodeBlock<T, N, C>));
+
+        if (handler->holdTask != nullptr) {
+            handler->holdTask->invoke = false;
+            for(size_t i = 0; i < C; i++) {
+                handler->holdTask->falseCalling[i] = false;
+            }
+        }
+        if (handler->holdRecord != nullptr) {
+            handler->holdRecord->static_index_msg = 0;
+            handler->holdRecord->static_index_idx = 0;
+        }
+        return handler;
+    }
+
+    template <typename T, size_t N, size_t C>
+    void writeFunction(IndentHandler<T, N, C> *handler, CodeBlock<T, N, C> *block) {
+        //writes or rewrites call stack
+        if (handler == nullptr || handler->holdTask == nullptr || block == nullptr) return;
+        for (size_t i = 0; i < N; i++) {
+            handler->holdTask->task[i] = block->task[i];
+        }
+    }
+
+    template <typename T, size_t N, size_t C>
+    void saveResult(IndentHandler<T, N, C> *handler, CodeBlock<T, N, C> *block) {
+        //saves return values from callee
+        if (handler == nullptr || handler->holdTask == nullptr || block == nullptr) return;
+        for (size_t i = 0; i < N; i++) {
+            handler->holdTask->taskResponses[i] = block->taskResponses[i];
+        }
+    }
+
+    template <typename FnType, size_t C, size_t T>
+    IndentHandler<FnType, T, C>* initializeFunctions(const bool (&booleanFunctions)[C], const FnType (&callbacks)[T]){
+        /* initializes callstack functions:
+        * booleanFunctions: each of booleanFunction is specifying conditions that must be met for invoking callback
+        * callbacks: functions that boolean constraints are tied to and can be killed with setting systemDispatcher to false
+        */
+
+        auto *handler = allocateHandle<FnType, T, C>();
+        if (handler == nullptr || handler->holdTask == nullptr) { return nullptr; }
+
+        for (size_t i = 0; i < T; i++) {
+            handler->holdTask->task[i] = callbacks[i];
+        }
+        for (size_t i = 0; i < C; i++) {
+            handler->id[i] = i;
+            handler->holdTask->booleanTasks[i] = booleanFunctions[i];
+        }
+        return handler;
+    }
+
+    template <typename T, size_t N, size_t C>
+    void callFunction(IndentHandler<T, N, C> *handler, unsigned int executionId) {
+        //if handler was initialized, we can call functions from its callstack by id
+
+        if (handler == nullptr || handler->holdTask == nullptr) return;
+            for (size_t i = 0; i < C; i++) { //[missing]: bound safety
+                /*falseCalling: introduced for a specific cases on these code handlers
+                boolean executors still need tweaks, which means this isn't still very functional */
+                if (handler->id[i] == executionId && !handler->holdTask->falseCalling[i]) {
+                    handler->holdTask->invoke = true;
+                    handler->holdTask->taskResponses[i].value = handler->holdTask->task[0]();
+                }
+            }
+    }
+
+    template <typename T, size_t N, size_t C>
+    void printBlock(IndentHandler<T, N, C> *handler) {
+        //prints handler's informatoin, values that it's holding and ID associated
+        if (handler == nullptr || handler->holdTask == nullptr) return;
+        for (size_t i = 0; i < C; i++) {
+            Serial.print(F("ID: ")); Serial.print(handler->id[i]);
+            Serial.print(F(" | Task Value: ")); Serial.println(handler->holdTask->taskResponses[i].value);
+        }
+    }
+
+    template <typename T, size_t N, size_t C>
+    void writingLog(IndentHandler<T, N, C> *handler, const char* err_ptr, int lineNumber) {
+        //writes log to the handler log / recordTable, it generally holds error pointers or messages where program failed
+
+        if (handler == nullptr || handler->holdRecord == nullptr) { return; }
+        CallStruct* logger = handler->holdRecord;
+        if (logger->static_index_msg >= 64 || logger->static_index_idx >= 64) { return; }
+
+        logger->ref_calls[logger->static_index_msg] = err_ptr;
+        char* lineStr = (char*)malloc(8);
+        if (lineStr != nullptr) {
+            itoa(lineNumber, lineStr, 10);
+            logger->index_calls[logger->static_index_idx] = lineStr;
+        } else {
+            logger->index_calls[logger->static_index_idx] = "???";
+        }
+        logger->static_index_msg++;
+        logger->static_index_idx++;
+    }
+
+    template <typename T, size_t N, size_t C>
+    void pauseById(IndentHandler<T, N, C> *handler, unsigned int executionId) {
+        //falseCaller: introduced to make sure function inside array would never be called
+        if (handler == nullptr || handler->holdTask == nullptr) { return; }
+        for (size_t i = 0; i < C; i++) {
+            if (handler->id[i] == executionId) {
+                handler->holdTask->falseCalling[i] = true;
+            }
+        }
+    }
+};
+
+HandlerProperties handlerProperties;
+#define WRITESTR(handler, err_ptr) handlerProperties.writingLog(handler, err_ptr, __LINE__) //__LINE__ compiler macro
+
+//functions for handler
+int rightIfValueX() {
+    return 10;
+}
+
+int rightIfValueY() {
+    return 20;
+}
+
+int getNumber() {
+    return 30;
+}
+
+int getNumberT() {
+    return 32;
+}
+
+
+void setup() {
+    Serial.begin(9600);
+    while (!Serial);
+    Serial.println(F("\tConnected\t"));
+
+    const bool boolArr[2] = {true, false};
+    const intFn taskArr[2] = {getNumberT,getNumber};
+
+    auto *initializeFunctions = handlerProperties.initializeFunctions<intFn, 2, 2>(boolArr, taskArr);
+    //template's instance
+
+    if (initializeFunctions != nullptr) {
+
+        handlerProperties.callFunction(initializeFunctions, 0);
+        handlerProperties.callFunction(initializeFunctions, 1);
+        handlerProperties.callFunction(initializeFunctions, 2);
+
+        Serial.println("Printing values after all function execution: ");
+        handlerProperties.printBlock(initializeFunctions);
+
+        handlerProperties.freeHandle(initializeFunctions);
+    }
+}
+
+void loop() {
+    delay(50000);
+}
+
+/*
+#define STRINGIFY(x) #x
 #define TOSTRING(x) STRINGIFY(x)
 
 #define WRITESTR(logger, err_ptr) \
@@ -92,45 +289,13 @@ struct IndentHandler {
   logger.static_index_idx++;
   
   
-//(n): param count
-//isSafe = dispatcher + event (1)
-//callback = indentHandler.holdTask.task[i]  (1)
-//propagate from RUN_CODE, would be messy (1)
-//returnValues = indentHandler.holdTask[i].taskResponse<T>[j] (2)
-//logger: (2)  -> hold for constraints if they were satisfied
-//indentHnalder[i].holdRecord //pro jaky indentHnalder je hold record
-//ADD: returnValues
-
-class globalDispatcher { 
-  private: 
-    static bool dispatcher;
-  
-  public: 
-    bool getSystemDispatcher() {
-      return dispatcher; 
-    } 
-    
-    //doesn't work with contraints, it validates. If contraints are met, but not the dispatcher / was shut down / terminated (don't run) 
-    void setSystemDispatcher() {
-      dispatcher = false; 
-    }
-};
-
-
-class taskManager : public globalDispatcher { 
-  public: 
-    void terminateProcess() { 
-      //find proccess and then terminate,
-      // [[WORK HERE!!!!]]
-    }
-};
-
 //dispatcher class fix
 #define CALLERFN(isSafe, indentHandler, logger, j_handler_pointer, i_task_pointer, returnValues) do { \
   const char *err_ptr = NULL; \
-  
-  if ( globalDispatcher.getSystemDispatcher() && indentHandler[j_handler_pointer].holdRecord[i_task_pointer].allSatisfied)  { \ 
-    returnValues = indentHandler[j_handler_pointer].holdTask[i_task_pointer].task \
+  instnaceDispatcher GlobalDispatcher; \
+
+  if ( instanceDispatcher.getSystemDispatcher() && indentHandler.id[j_handler_pointer].holdRecord[i_task_pointer].allSatisfied)  { \
+    returnValues = indentHandler[j_handler_pointer].holdTask[i_task_pointer].task; \
   } \ 
   
   else { \
@@ -150,11 +315,12 @@ class taskManager : public globalDispatcher {
       return false;  \ 
     }  else { \ 
       return true; \
-    }
+    } \
   }
 
+
 //implement for IndentHanlder (FIX)
-//codeBlock: holdTask
+//CodeBlock: holdTask
 
 #define RUN_CODE(indentHandler) do { \
   int i = 0; \
@@ -200,241 +366,6 @@ class taskManager : public globalDispatcher {
     i++; \
   } \
 } while(0)
+*/
 
 
-void terminateById(int id, IndentHandler dataBlock, unsigned int allSystemPid) {
-  if (id != NULL ) {
-    dataBlock.id = NULL;
-    dataBlock.holdRecord = NULL;
-    dataBlock.holdTask = NULL;
-  }
-  Serial.println("Can't terminate ID: ", id);
-}
-
-
-
-
-
-
-
-
-
-struct IndentHandler { 
- const unsigned int id;
- callStruct holdRecord; 
- codeBlock holdTask;
-};
-
-struct callStruct {
-  const char* ref_calls[64]; 
-  const char* index_calls[64];  
-  int static_index_msg = 0; 
-  int static_index_idx = 0; 
-};
-
-template <typename T, size_t N> struct codeBlock {
-  bool invoke;
-  T task[N];
-  TaskResponse<T> taskResponses[N];
-};
-
-
-
-class poolDynamics {
-  private: 
-    struct indentPool {
-      const unsigned int endpointNumber;
-      unsigned int id;
-      IndentHandler *poolHandlers;
-    }
-  
-  public: 
-    static int endpointCnt; //have some aware of endpoint count. (system might ask how many endpoints are there)
-    static char **endpointStat[endpointCnt + 1] = {"Not connected"}; //write endpoint stuatses by endpoint
-    static indentPool pool;
-    
-    void createPool() {
-      pool.id = pool.id++;
-      pool.poolHandlers[pool.id] = CreateExeHandle(); 
-    }
-    
-    void writePool(IndentHandler context, unsigned int i_pool_pointer) {
-      pool[i_pool_pointer].poolHandlers = NULL;
-      pool[i_pool_pointer].poolHandlers = context;
-    }
-    
-    IndentHandler readPool(unsigned int i_pool_pointer) {
-      if ( i_pool_pointer > pool.id)  { return IndentHandler(" Error ") }
-      return pool[i_pool_pointer].poolHandlers;
-    }
-     
-    void destroyPool(unsigned int poolId) {
-      if (readPool(poolId) != NULL ) { 
-        pool[poolId].id = NULL;
-        pool[poolId].poolHandlers[poolId] = NULL;
-      }
-    }
-     
-  void getPoolIds(indentPool pool) {
-    int i = 0; 
-    
-    while (pool.poolHandlers) { 
-      Serial.println(pool.poolHandlers[i].id);
-      i++;
-    }
-  }
-  
-  void poolIdFunctions(indentPool pool) {
-    getPoolIds(pool);
-  }
-  
-  void poolIdEndpoints() {
-    for ( int i = 0 ; i > endpointCnt; i++ ) {
-      while ( endpointStat[i] != NULL ) { 
-        Serial.println(endpointStat[i]);
-      }
-    }
-  }
-  
-  bool validateEndpoint(unsigned int requestedEndpoint) {
-    if ( requestedEndpoint == NULL || requestedEndpoint != indentPool.endpointNumber) { return false; }
-    else { 
-      return true; 
-    }
-  }
-  
-  void poolIdDestroyer(unsigned int requestOnDestroy) {
-    indentPool.id = NULL;
-    indentPool.poolHandlers[requestOnDestroy] = NULL;
-  }
-  
-};
-
-//declare the pool (main)
-poolDynamics::pool = {
-  
-}
-
-
-template <typename T>
-IndentHandler CreateExeHandle(callStruct call, (T (*ptr)()) block, IndentHandler idlist, unsigned int struct_N){
-  //this puts them into IndentHandler structure
-  
-  //MAKE SURE FOR THE LAST TIME IT'S FORMATTED CORRECTLY!
-  
-  //callStruct void (*ptr)() = ...
-  
-  //CodeBlock: IndentHandler
-  
-   
-  if (call != NULL && block != NULL && idlist != NULL ) {
-    static CallStruct blockLog;
-    struct_N = (sizeof(block)  / sizeof(block[0])) + 1;
-    
-    static codeBlock<struct_N + 1> functionBlock = {
-          defaultSystemDispatcher,  
-          { block, NULL },
-          TaskResponse<int> responseBlock[struct_N],
-    };
-  
-    
-    indentPool.indentList[indent_index].id = idGetter().getId();
-    indentPool.indentList[indent_index].holdRecord = logging;
-    indentPool.indentList[indent_index].holdTask = functionBlock;
-    indentPool.taskResponse[indent_index].size = struct_N;
-    
-  }
-  return NULL;  
-}
-
-
-
-
-
-
-
-
-
-
-class interfaceProcessTerminal {
-public:
-  virtual bool getSystemDispatcher() { return false; }
-};
-
-struct processTerminal() : public interfaceProcessTerminal{
-  static bool systemDispatcher; 
-   
-  bool getSystemDispatcher() override { return systemDispatcher; }
-};
-
-class getterKeeper {
-public: 
-  virtual unsigned int getId() { return 0; } 
-};
-
-struct idKeeper() : public getterKeeper {
-  static unsigned int highestId; 
-  
-  int getId() override { return highestId; }
-};
-
-//later in program:
-bool processTerminal::systemDispatcher = false;
-unsigned int idKeeper::highestId = 0;
-
-
-
-
-
-
-
-
-
-//[7]
-void terminateById(int id, IndentHandler dataBlock, unsigned int allSystemPid) {
-  if (id != NULL ) {
-    dataBlock.id = NULL;
-    dataBlock.holdRecord = NULL;
-    dataBlock.holdTask = NULL;
-  }
-  Serial.println("Can't terminate ID: ", id);
-}
-
-
-//interface:
-FNconstraint ringIfValueX(int x) {
-  if (x != 0 || x!=NULL) {
-    return true;
-  }
-  return false;
-}
-
-FNconstraint ringIfValueY(int y) {
-  if (y != 0 || x!=NULL) {
-    return true;
-  }
-  return false;
-}
-
-ResponseSignInt getNumber() {
-  Serial.println("10");
-  return 10;
-}
-
-class ffiInterface { 
-  //... something here to call.
-};
-
-//setup + loop:
-void setup() {
-  Serial.begin(9600);
-  while (!Serial);
-  Serial.println("\tConnected\t");
-}
-
-void loop() {
-  static IndentHandler c1 = CreateExeHandle({ringIfValueX,ringIfValueY},{getNumber});
-  RUN_CODE(c1);
-  
-  delay(50000);
-}
