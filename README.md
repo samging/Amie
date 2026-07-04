@@ -24,10 +24,12 @@ Project Amie, was invented for ease of arduino board management and possibly mak
 <br>
 <br>Here is simple code for displaying "hello world" each 1s delay.
 ```cpp
-auto *initializeFunctions = handlerProperties.initializeFunctions<intFn, 2, 2>(()[]{delay(1000), ()[]{Serial.println("Hello World")});
+auto *initializeFunctions = handlerProperties.initializeFunctions<intFn, 1, 1>(()[]{delay(1000), ()[]{Serial.println("Hello World")});
 handlerProperties.callFunction(initializeFunctions, 0); //trigger function with the 1s delay
+//if we want to store the result as a char* function:
+handlerProperties.printBlock(initializeFunctions); //would print our function String result
 ```
-YOU NEED IMAGE HERE:
+YOU NEED AN IMAGE HERE:
 
 ```markdown
 A lightweight, template-driven task execution and logging framework designed for Arduino microcontrollers. It allows for conditional invocation of function pointers, safe decoupling of task logic, memory-allocated handle isolation, and macro-based file logging.
