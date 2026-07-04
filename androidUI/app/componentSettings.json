@@ -1,0 +1,18 @@
+{
+  "1": {
+    "name": "Device 1",
+    "port": "1"
+  },
+  "2": {
+    "name": "Device 2",
+    "port": "2"
+  },
+  "3": {
+    "name": "Device 3",
+    "port": "3"
+  },
+  "4": {
+    "name": "Device 4",
+    "port": "4"
+  }
+}
