@@ -1,43 +1,69 @@
-Project Amie, was invented for ease of arduino board management and possibly making them interact with cloud computing platforms.
-<br> We wrote no tests as proof, so Im wary that it has many unexpected bugs coming to resolve.
-<br> Arduino boards are simply very cheap and anyone can afford them, where these boards could be plugged as some middle mans for processing external world data.
-<br> Such as: callcenter's small ai agents for interacting with customers *exceptional latency.
-<br> The whole project is in unfinished state and lacks many features that should be introduced to it.
-<br> 
-<br> Planned: multi threaded execution engine that would keep track of reading and responding to arduino boards
-<br> 
-<br> I provide a simple interface for creating a device and managing its state. It is fully compantible with any android emulator or just android phones.
-<br> 
-<br> Main interface is consisting of: 
-<br> Manage: where you manage device name, port, endpoint and can see device's logs
-<br> Configure (beta): doesn't work much, but is integral for managing interactions such as viewing devices currently ongoing processes or debugging 
-![Main Interface](Screenshot%202026-07-04%20at%2020.51.09.png)
-<br> 
-<br> Packages overview: you can download online package from repository. There is no possiblity to upload your own package, but the download of them is fully working. 
-![Task Flow](Screenshot%202026-07-04%20at%2020.52.32.png)
-<br> 
-<br> Terminal shell: here you would be able to view logs, send interrupt commands and work with arduino boards trhoughout the runtime process (this will be handled in incoming updates).
-![Logs and Execution](Screenshot%202026-07-04%20at%2020.53.07.png)
+## About Project Amie
 
-<br>Here is memory layout of the arduino logic, where all of this is now managed through ```IndentHandler``` and has its methods to be called.
-<br>Because arduino controllers are simply run in loops, I made a logic that helps you to track of every function whenever to be called or logged from error.
-<br>
-<br>Here is simple code for displaying "hello world" each 1s delay.
+Project Amie was created to simplify Arduino board management and bridge the gap between microcontrollers and cloud computing platforms. 
+
+> **Note on Project Status:** The project is currently in an unfinished, experimental state and lacks several core features. Because no formal tests have been written yet, expect unexpected runtime bugs.
+
+### Architectural Vision
+Bare-metal microcontrollers are incredibly affordable solutions that can act as the perfect "middlemen" for harvesting real-world data—such as voice signals, button events, and general IoT telemetry. Through Amie's Android UI, users can seamlessly manage, track, and toggle these connected Arduino boards.
+
+### Planned Features
+* **Multi-threaded Execution Engine:** A dedicated engine to continuously track, read from, and respond to multiple Arduino boards simultaneously.
+* **Arduino Board Execution Platform:** Outsourcing harvested sensor and peripheral data to high-level cloud computation nodes.
+
+---
+
+## Features & UI Overview
+
+### 1. Device Dashboard & Management
+Provides a straightforward interface for creating devices and managing their operational states. It is fully compatible with any Android emulator or physical Android phone.
+
+* **Configure (Beta):** An essential hub for viewing ongoing device processes and debugging (currently a work in progress).
+* **Manage:** Dedicated space to configure device names, ports, and endpoints, as well as view live device logs.
+
+<img src="Screenshot%202026-07-04%20at%2020.51.09.png" alt="Main Interface" max-width="500px" width="100%" />
+
+### 2. Packages Overview
+Allows you to download online firmware packages directly from a central repository. While custom package uploads are not yet supported, the download and deployment system is fully functional.
+
+<img src="Screenshot%202026-07-04%20at%2020.52.32.png" alt="Task Flow" max-width="500px" width="100%" />
+
+### 3. Terminal Shell (Upcoming)
+An integrated runtime terminal where you will be able to view live stream logs, issue interrupt commands, and interact directly with Arduino boards during execution.
+
+<img src="Screenshot%202026-07-04%20at%2020.53.07.png" alt="Logs and Execution" max-width="500px" width="100%" />
+
+---
+
+## Tech Stack & Libraries
+* **Backend:** Spring Boot
+* **Mobile Frontend:** Android Material UI, Ktor Client
+* **Integrations:** Google API, various serialization libraries
+
+---
+
+## Arduino Memory & Execution Layout
+
+Because standard Arduino programs execute sequentially inside a rigid `loop()`, tracking errors and managing conditional execution can get messy. Amie introduces the `IndentHandler` framework to bring structured, organized layout management to microcontroller tasks.
+
+Here is a quick example showing how to schedule a repetitive "Hello World" task with a 1-second delay:
+
 ```cpp
-auto *initializeFunctions = handlerProperties.initializeFunctions<intFn, 1, 1>(()[]{delay(1000), ()[]{Serial.println("Hello World")});
-handlerProperties.callFunction(initializeFunctions, 0); //trigger function with the 1s delay
-//if we want to store the result as a char* function:
-handlerProperties.printBlock(initializeFunctions); //would print our function String result
+// Initialize functions within the framework handle
+auto *initializeFunctions = handlerProperties.initializeFunctions<voidFn, 1, 1>(
+    [](){ delay(1000); }, 
+    [](){ Serial.println("Hello World"); }
+);
+
+// Trigger the scheduled function sequence (index 0)
+handlerProperties.callFunction(initializeFunctions, 0); 
+
+// Print out the structural block metrics and captured string results
+handlerProperties.printBlock(initializeFunctions);
 ```
-YOU NEED AN IMAGE HERE:
 
 ```markdown
 A lightweight, template-driven task execution and logging framework designed for Arduino microcontrollers. It allows for conditional invocation of function pointers, safe decoupling of task logic, memory-allocated handle isolation, and macro-based file logging.
-
-## Architectural Structure
-
-The ASCII diagram below illustrates the structural alignment, memory allocation boundaries, and compile-time trait routing managed by `IndentHandler`.
-
 ```text
                +=================================================+
                |               HandlerProperties                 |
