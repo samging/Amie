@@ -11,7 +11,7 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@4
+      - uses: actions/checkout@v4.1.7
       - name: Set up SDK
         uses: actions/setup-java@v4
         with:
@@ -25,6 +25,6 @@ jobs:
     runs-on: macos-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.1.7
       - name: Run Instrumental Tests / UI Tests
         run: ./gradlew connectedCheck
