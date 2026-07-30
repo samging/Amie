@@ -10,6 +10,9 @@ on:
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./amie
     steps:
       - uses: actions/checkout@v4.1.7
       - name: Set up SDK
@@ -23,6 +26,9 @@ jobs:
   instrumental-tests:
     needs: unit-tests
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ./amie
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4.1.7
