@@ -14,42 +14,44 @@ import java.util.Collections
 
 /**
  * Spring configuration class to initialize and manage the Google Drive API client.
- *
- * This class reads the service account credentials from the classpath resources
- * and exposes a thread-safe [Drive] bean for dependency injection.
- *
- * @author /sam
  */
 @Configuration
 class ConnectToGoogleDrive {
 
-	companion object {
-		private const val APPLICATION_NAME = "Spring Boot API for Google Drive"
-	}
-
 	/**
-	 * Creates and configures the [Drive] client bean using OAuth2 Service Account credentials.
-	 *
-	 * The method expects a valid credentials JSON file named `amieServicePackages.json`
-	 * to be present in the root of the resources directory.
-	 *
-	 * @return An authorized [Drive] client instance with full drive scopes.
-	 * @throws IOException If the credentials file cannot be found or read.
+	 * Creates and configures the [Drive] client bean.
+	 * Supports both Service Account and User Account (OAuth2) credentials.
 	 */
 	@Bean
 	fun connectToDisk(): Drive {
-		val gStream: InputStream = ConnectToGoogleDrive::class.java.getResourceAsStream("/amieServicePackages.json")
-			?: throw IOException("Resource not found: credentials.json")
 
-		val credentials = GoogleCredentials.fromStream(gStream)
-			.createScoped(Collections.singleton(DriveScopes.DRIVE))
+		val configPath = System.getenv("b")
+			?: "/Users/samuel/Downloads/amieServicePackages.json" // Primary fallbackuy7hj6y6t5grtgr5t5grt5
+
+		val gFile = java.io.File(configPath)
+		if (!gFile.exists()) {
+			throw IllegalStateException("Credentials file not found at $configPath. Please check AMIE_GDISK_OA env var.")
+		}
+
+		val credentials = try {
+			GoogleCredentials.fromStream(gFile.inputStream())
+				.createScoped(Collections.singleton(DriveScopes.DRIVE))
+		} catch (e: Exception) {
+			if (e.message?.contains("type") == true) {
+				throw IllegalStateException(
+					"The file at $configPath is an OAuth Client ID file, but this service currently expects a Service Account key. " +
+					"Please point AMIE_GDISK_OA to '/Users/samuel/Downloads/amieServicePackages.json' instead.", e
+				)
+			}
+			throw e
+		}
 
 		return Drive.Builder(
 			GoogleNetHttpTransport.newTrustedTransport(),
 			GsonFactory.getDefaultInstance(),
 			HttpCredentialsAdapter(credentials)
 		)
-			.setApplicationName(APPLICATION_NAME)
+			.setApplicationName("AmiePackageRepository")
 			.build()
 	}
 }

@@ -4,7 +4,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 
-@SpringBootApplication(exclude = [DataSourceAutoConfiguration::class])
+@SpringBootApplication
 class AmiePackageRepositoryApplication
 
 fun main(args: Array<String>) {

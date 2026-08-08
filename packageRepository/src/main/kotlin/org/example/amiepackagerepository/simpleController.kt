@@ -1,46 +1,54 @@
 package org.example.amiepackagerepository
 
 import com.google.api.services.drive.Drive
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
+import org.springframework.web.server.ResponseStatusException
+import org.springframework.http.HttpStatus
 import java.io.File
+import io.jsonwebtoken.Claims
+
 /**
- * REST Controller providing HTTP endpoints to interact with Google Drive.
- * Exposes endpoints for listing available files and downloading specific
- * assets to the local file system via the [SimpleService].
+ * REST Controller providing HTTP endpoints to interact with Google Drive and GitHub.
  * @property driveService The authorized Google Drive client.
- * @property simpleService The business logic service handling Drive operations.
+ * @property simpleService The business logic service handling Drive and GitHub operations.
+ * @property userService The business logic service handling user operations.
  */
+@CrossOrigin(origins = ["http://localhost:8081"])
 @RestController
-open class SimpleController(
+class SimpleController(
 	private val driveService: Drive,
-	private val simpleService: SimpleService
+	private val simpleService: SimpleService,
+	private val userService: UserService
 ) {
 
 	/**
 	 * Retrieves a formatted list of all files present in the Google Drive.
 	 * @return A string representation/log of the files found in the drive.
 	 */
-	@GetMapping("/list-files")
-	open fun getFiles(): String {
+	@GetMapping("/list-disk")
+	fun getFiles(): String {
 		return simpleService.listFiles(driveService)
 	}
 
 	/**
-	 * Downloads a specific file from Google Drive to the user's local Downloads folder.
-	 * The file is saved locally under the path:
-	 * `~/Downloads/amiePackagesDownload/{fileName}`
+	 * Retrieves a list of all files present in the GitHub repository.
+	 * @return A list of items found in the GitHub repository.
+	 */
+	@GetMapping("/list-github")
+	fun getGithubFiles(): List<GithubItem> {
+		return simpleService.listFilesGithub()
+	}
+
+	/**
 	 * @param fileName The exact name of the file to retrieve from Google Drive.
 	 * @return A status message indicating whether the download succeeded or failed,
-	 * including the absolute path on success.
 	 */
 	@GetMapping("/download")
-	open fun downloadFile(@RequestParam fileName: String): String {
-		// Customize this path to where you want it saved on your computer
+	fun downloadFile(@RequestParam fileName: String = "welcome-message"): String {
+
 		val userHome = System.getProperty("user.home")
-		val destinationFile = java.io.File(userHome, "Downloads/amiePackagesDownload/$fileName")
+		val destinationFile = File(userHome, "Downloads/amiePackagesDownload/$fileName")
 
 		return try {
 			simpleService.downloadFile(driveService, fileName, destinationFile)
@@ -48,5 +56,64 @@ open class SimpleController(
 		} catch (e: Exception) {
 			"Failed to download file: ${e.message}"
 		}
+	}
+
+	@PostMapping("/upload")
+	fun uploadFile(@RequestParam("file") file: MultipartFile): String {
+		return try {
+			simpleService.uploadFile(driveService, file)
+			"File uploaded successfully"
+		} catch (e: com.google.api.client.googleapis.json.GoogleJsonResponseException) {
+			"Google API Error: ${e.details?.message ?: e.message}"
+		} catch (e: Exception) {
+			"Error uploading file: ${e.message}"
+		}
+	}
+
+	@GetMapping("/query")
+	fun queryFiles(@RequestParam query: String): Any {
+		return simpleService.queryFilesGithub(query) ?: emptyList<Any>()
+	}
+
+	@PostMapping("/register")
+	fun register(@RequestBody registerRequest: Map<String, String>): String {
+		val username = registerRequest["username"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Username required")
+		val password = registerRequest["password"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required")
+		userService.createUser(username, password)
+		return "User registered successfully"
+	}
+
+	@PostMapping("/login")
+	fun login(@RequestBody loginRequest: Map<String, String>): Map<String, String> {
+		val username = loginRequest["username"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Username required")
+		val password = loginRequest["password"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required")
+		
+		val token = userService.loginAsUser(username, password)
+            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials")
+		
+		try {
+			simpleService.createUserDashboard(username = username)
+		} catch (e: Exception) {
+			// Non-fatal error, dashboard folder might already exist
+		}
+		
+        return mapOf("token" to token)
+	}
+
+	@GetMapping("/dashboard")
+	fun validateToken(@RequestHeader("Authorization") authHeader: String): String {
+		val token = authHeader.removePrefix("Bearer ")
+
+		val claims = userService.validateToken(token) 
+            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized or expired token")
+		val username = claims.subject
+		val userId = claims["userId", Long::class.java]
+
+		return "Welcome to your dashboard, $username (ID: $userId)!"
+	}
+
+	@DeleteMapping("/user")
+	fun deleteUser(@RequestParam username: String, @RequestParam password: String) {
+		userService.deleteUser(username, password)
 	}
 }
