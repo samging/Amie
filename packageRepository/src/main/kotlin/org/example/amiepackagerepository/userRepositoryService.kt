@@ -14,6 +14,10 @@ class UserService(private val userRepository: UserRepository) {
     private val log = LoggerFactory.getLogger(UserService::class.java)
     private val secretKey: SecretKey = Jwts.SIG.HS512.key().build()
 
+    fun userExists(username: String): Boolean {
+        return userRepository.existsByUsername(username)
+    }
+
     fun createUser(username: String = "", password: String) {
         val hashedPassword = passwordEncoder.encode(password) ?: throw IllegalStateException("Password encoding failed")
         val user = User(

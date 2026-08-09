@@ -14,6 +14,7 @@ import java.io.FileOutputStream
 import java.io.OutputStream
 import java.net.URLEncoder
 import java.util.Base64
+import java.util.concurrent.CompletableFuture
 
 /**
  * Common interface for items retrieved from different repository types.
@@ -27,7 +28,8 @@ interface RepositoryItem {
 data class GithubItem(
 	override val name: String,
 	override val downloadUrl: String? = null,
-	override val id: String? = null
+	override val id: String? = null,
+	val type: String = "file"
 ) : RepositoryItem
 
 data class GoogleDriveItem(
@@ -76,13 +78,18 @@ data class CreateRepoRequest(
 @Service
 open class SimpleService {
 
-	private val restClient = RestClient.create()
+	private val restClient = RestClient.builder()
+		.requestFactory(org.springframework.http.client.SimpleClientHttpRequestFactory().apply {
+			setConnectTimeout(5000)
+			setReadTimeout(5000)
+		})
+		.build()
 
 	/**
 	 * Lists files from the GitHub repository 'samging/codeRepository' in the 'uploads/' folder.
 	 */
 	fun listFilesGithub(): List<GithubItem> {
-		val githubToken = System.getenv("GITHUB_TOKEN")
+		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
 
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
@@ -112,7 +119,8 @@ open class SimpleService {
 			response?.map {
 				GithubItem(
 					name = it.name,
-					downloadUrl = it.download_url ?: ""
+					downloadUrl = it.download_url ?: "",
+					type = it.type
 				)
 			} ?: emptyList()
 		} catch (e: java.io.FileNotFoundException) {
@@ -125,7 +133,7 @@ open class SimpleService {
 	}
 
 	fun queryFilesGithub(query: String = ""): GithubContentResponse? {
-		val githubToken = System.getenv("GITHUB_TOKEN")
+		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
 		val path = "uploads"
@@ -142,7 +150,6 @@ open class SimpleService {
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$targetPath"
 		println("Generated URL: $url")
 
-		val restClient = RestClient.create()
 		return try {
 			// Since we are targeting a single file, we can map to a DTO or a generic Map/Json node
 			val responseEntity = restClient
@@ -199,41 +206,54 @@ open class SimpleService {
 	}
 
 	fun createUserDashboard(rootRepo: String = "codeRepository", username: String) {
+		if (username.isEmpty()) return
 
-		if (username.isEmpty()) {
-			throw java.lang.IllegalArgumentException("Username cannot be empty")
-		}
-
-		val githubToken = System.getenv("GITHUB_TOKEN")
-			?: throw java.lang.IllegalArgumentException("Environment variable 'GITHUB_TOKEN' not set.")
-
+		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
 		val repoOwner = "samging"
-		val path = "uploads"
+		val url = "https://api.github.com/repos/$repoOwner/$rootRepo/contents/uploads/$username/README.md"
 
-		val url = "https://api.github.com/repos/$repoOwner/$rootRepo/contents/$username"
-		val restClient = RestClient.create()
+		// Run in background to avoid blocking login/register response
+		CompletableFuture.runAsync {
+			try {
+				// 1. Check if the file already exists
+				val checkResponse = restClient.get()
+					.uri(url)
+					.header("Authorization", "Bearer $githubToken")
+					.header("Accept", "application/vnd.github+json")
+					.header("X-GitHub-Api-Version", "2022-11-28")
+					.retrieve()
+					.onStatus({ it.value() == 404 }, { _, _ -> /* Expected if new user */ })
+					.toEntity(String::class.java)
 
-		val requestBody = CreateRepoRequest(
-			name = rootRepo,
-			description = "Dashboard for $username",
-			private = true
-		)
-		try {
-			val response = restClient
-				.post()
-				.uri(url)
-				.header("Authorization", "Bearer $githubToken")
-				.header("Accept", "application/vnd.github+json")
-				.header("X-GitHub-Api-Version", "2022-11-28")
-				.body(requestBody)
-				.retrieve()
-				.toEntity(String::class.java)
-
-			if (response.statusCode.is2xxSuccessful) {
-				println("GitHub Repository Created Successfully!")
+				if (checkResponse.statusCode.is2xxSuccessful) {
+					println("DEBUG: Dashboard for $username already exists. Skipping.")
+					return@runAsync
+				}
+			} catch (e: Exception) {
+				// 404 is expected here for new users
 			}
-		} catch(e: Exception) {
-			println("CRITICAL: GitHub API Error: ${e.message}")
+
+			// 2. Create the file if it didn't exist
+			val contentBase64 = Base64.getEncoder().encodeToString("# Dashboard for $username".toByteArray())
+			val body = mapOf(
+				"message" to "Create dashboard for $username",
+				"content" to contentBase64
+			)
+
+			try {
+				restClient.put()
+					.uri(url)
+					.header("Authorization", "Bearer $githubToken")
+					.header("Accept", "application/vnd.github+json")
+					.header("X-GitHub-Api-Version", "2022-11-28")
+					.body(body)
+					.retrieve()
+					.toBodilessEntity()
+
+				println("GitHub User Dashboard Created Successfully for $username!")
+			} catch (e: Exception) {
+				println("DEBUG: GitHub dashboard creation failed: ${e.message}")
+			}
 		}
 	}
 
@@ -269,21 +289,26 @@ open class SimpleService {
 		outputStream.close()
 	}
 
-	fun uploadFile(driveService: Drive, file: MultipartFile) {
-		val githubToken = System.getenv("GITHUB_TOKEN") 
-			?: throw java.io.IOException("Environment variable 'GITHUB_TOKEN' not set.")
+	fun uploadFile(username: String, file: MultipartFile) {
+		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
 		
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
 		val fileName = file.originalFilename ?: "unnamed_file"
-		val path = "uploads/$fileName"
+		
+		// Upload to user's specific folder
+		val path = if (username.isNotBlank()) "uploads/$username/$fileName" else "uploads/$fileName"
 		
 		val contentBase64 = Base64.getEncoder().encodeToString(file.bytes)
 		
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
 		
-		val body = mapOf(
-			"message" to "Upload $fileName via Amie Repository",
+		// 1. We need to check if the file exists to get its SHA if we want to overwrite, 
+		// but for now, let's assume we are creating a new version or new file.
+		// GitHub PUT requires SHA for updates.
+		
+		val body = mutableMapOf(
+			"message" to "Upload $fileName via Amie Repository for $username",
 			"content" to contentBase64
 		)
 
@@ -295,12 +320,59 @@ open class SimpleService {
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.body(body)
 				.retrieve()
+				.onStatus({ it.value() == 422 }, { _, _ ->
+					throw RuntimeException("File already exists. Overwrite not yet implemented (requires SHA).")
+				})
 				.toEntity(String::class.java)
 
-			println("GitHub Upload Success! Status: ${response.statusCode.value()}")
+			println("GitHub Upload Success for $username! Status: ${response.statusCode.value()}")
 		} catch (e: Exception) {
 			println("CRITICAL: GitHub API Error: ${e.message}")
 			throw e
 		}
 	}
+
+	fun sendEdit(username: String, fileName: String, updateFile: MultipartFile) {
+		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
+		val repoOwner = "samging"
+		val repoName = "codeRepository"
+		
+		val path = if (username.isNotBlank()) "uploads/$username/$fileName" else "uploads/$fileName"
+		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+
+		try {
+			// 1. Get the current file to retrieve its SHA
+			val currentFile = restClient.get()
+				.uri(url)
+				.header("Authorization", "Bearer $githubToken")
+				.header("Accept", "application/vnd.github+json")
+				.header("X-GitHub-Api-Version", "2022-11-28")
+				.retrieve()
+				.body(GithubContentResponse::class.java) ?: throw RuntimeException("File not found for update: $path")
+
+			// 2. Prepare the update body
+			val contentBase64 = Base64.getEncoder().encodeToString(updateFile.bytes)
+			val body = mapOf(
+				"message" to "Update $fileName via Amie Repository for $username",
+				"content" to contentBase64,
+				"sha" to currentFile.sha
+			)
+
+			// 3. Send the PUT request to update
+			val response = restClient.put()
+				.uri(url)
+				.header("Authorization", "Bearer $githubToken")
+				.header("Accept", "application/vnd.github+json")
+				.header("X-GitHub-Api-Version", "2022-11-28")
+				.body(body)
+				.retrieve()
+				.toEntity(String::class.java)
+
+			println("GitHub Update Success for $username! Status: ${response.statusCode.value()}")
+		} catch (e: Exception) {
+			println("CRITICAL: GitHub API Update Error: ${e.message}")
+			throw e
+		}
+	}
+
 }

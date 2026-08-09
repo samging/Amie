@@ -59,14 +59,31 @@ class SimpleController(
 	}
 
 	@PostMapping("/upload")
-	fun uploadFile(@RequestParam("file") file: MultipartFile): String {
+	fun uploadFile(
+		@RequestParam("file") file: MultipartFile,
+		@RequestParam("username") username: String
+	): String {
 		return try {
-			simpleService.uploadFile(driveService, file)
+			simpleService.uploadFile(username, file)
 			"File uploaded successfully"
 		} catch (e: com.google.api.client.googleapis.json.GoogleJsonResponseException) {
 			"Google API Error: ${e.details?.message ?: e.message}"
 		} catch (e: Exception) {
 			"Error uploading file: ${e.message}"
+		}
+	}
+
+	@PostMapping("/edit")
+	fun editFile(
+		@RequestParam("file") file: MultipartFile,
+		@RequestParam("filename") fileName: String,
+		@RequestParam("username") username: String
+	): String {
+		return try {
+			simpleService.sendEdit(username, fileName, file)
+			"File updated successfully"
+		} catch (e: Exception) {
+			"Error updating file: ${e.message}"
 		}
 	}
 
@@ -79,7 +96,14 @@ class SimpleController(
 	fun register(@RequestBody registerRequest: Map<String, String>): String {
 		val username = registerRequest["username"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Username required")
 		val password = registerRequest["password"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required")
+
+		if (userService.userExists(username)) {
+			throw ResponseStatusException(HttpStatus.CONFLICT, "Username is already assigned to different account")
+		}
+
 		userService.createUser(username, password)
+		simpleService.createUserDashboard(username = username)
+
 		return "User registered successfully"
 	}
 
@@ -88,15 +112,18 @@ class SimpleController(
 		val username = loginRequest["username"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Username required")
 		val password = loginRequest["password"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required")
 		
+		println("DEBUG: Login attempt for user: $username")
 		val token = userService.loginAsUser(username, password)
             ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials")
 		
+		println("DEBUG: Login successful for $username, generating dashboard...")
 		try {
 			simpleService.createUserDashboard(username = username)
 		} catch (e: Exception) {
-			// Non-fatal error, dashboard folder might already exist
+			println("DEBUG: Dashboard creation non-fatal error: ${e.message}")
 		}
 		
+		println("DEBUG: Returning token for $username")
         return mapOf("token" to token)
 	}
 
