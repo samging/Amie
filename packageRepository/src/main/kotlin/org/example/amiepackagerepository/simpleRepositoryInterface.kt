@@ -11,3 +11,9 @@ interface UserRepository : JpaRepository<User, Long> {
     fun existsByUsername(username: String): Boolean
 }
 
+@Repository
+interface DeviceStatusRepository : JpaRepository<DeviceStatus, Long> {
+    fun findByUser(user: User): List<DeviceStatus>
+    fun findByUserUsername(username: String): List<DeviceStatus>
+}
+

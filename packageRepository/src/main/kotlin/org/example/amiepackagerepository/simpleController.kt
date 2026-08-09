@@ -19,7 +19,8 @@ import io.jsonwebtoken.Claims
 class SimpleController(
 	private val driveService: Drive,
 	private val simpleService: SimpleService,
-	private val userService: UserService
+	private val userService: UserService,
+    private val deviceService: DeviceService
 ) {
 
 	/**
@@ -143,4 +144,18 @@ class SimpleController(
 	fun deleteUser(@RequestParam username: String, @RequestParam password: String) {
 		userService.deleteUser(username, password)
 	}
+
+    @PostMapping("/device-status")
+    fun saveDeviceStatus(
+        @RequestParam username: String,
+        @RequestBody deviceMap: Map<String, DeviceDto>
+    ): String {
+        deviceService.saveDeviceStatuses(username, deviceMap)
+        return "Device statuses saved successfully"
+    }
+
+    @GetMapping("/device-status")
+    fun getDeviceStatus(@RequestParam username: String): List<DeviceStatus> {
+        return deviceService.getDeviceStatuses(username)
+    }
 }
