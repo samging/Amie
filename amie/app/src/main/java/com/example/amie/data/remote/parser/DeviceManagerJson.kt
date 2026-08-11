@@ -1,25 +1,29 @@
 package com.example.amie.data.remote.parser
 
 import androidx.compose.runtime.mutableStateOf
-import java.io.File
-import kotlinx.serialization.json.Json
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import java.io.File
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.Serializable
 import com.example.amie.data.remote.DeviceDto
 import com.example.amie.data.remote.DeviceActions
 import com.example.amie.data.remote.DeviceRemoteService
 import com.example.amie.util.sharedHttpClient
+import java.util.HashMap
 
 /**
  * A dummy PostResponse to satisfy compilation if not defined elsewhere.
  */
+@Serializable
 data class PostResponse(val status: String)
 
 /**
@@ -52,12 +56,16 @@ class DeviceManagerJson(
         val effectiveUsername = currentUsername.ifEmpty { "user1" }
         scope.launch {
             println("DEBUG: Fetching remote config for user: $effectiveUsername")
-            val initialMap = deviceService.repositoryDeviceController(
-                action = DeviceActions.GET,
-                username = effectiveUsername,
-                deviceMap = emptyMap()
-            )
-            _deviceMapState.value = initialMap
+            try {
+                val initialMap = deviceService.repositoryDeviceController(
+                    action = DeviceActions.GET,
+                    username = effectiveUsername,
+                    deviceMap = emptyMap()
+                )
+                _deviceMapState.value = initialMap
+            } catch (e: Exception) {
+                println("DEBUG: Fetch error: ${e.message}")
+            }
         }
     }
 
@@ -66,7 +74,7 @@ class DeviceManagerJson(
         syncGet()
     }
 
-    private inline fun <T> MutableStateFlow<T>.update(
+    private inline fun <T> MutableStateFlow<T>.updateFlow(
         noinline function: (T) -> T = { it }
     ) {
         this.value = function(this.value)
@@ -160,10 +168,10 @@ class DeviceManagerJson(
                 }
             }
 
-            deviceMap[indexDevice] = Device(name = updatedName ?: "undefined", port = updatedPort ?: "undefined", deviceEndpoint = updatedEndpoint ?: "undefined")
+            deviceMap[indexDevice] = Device(name = updatedName, port = updatedPort, deviceEndpoint = updatedEndpoint)
             println("DEBUG: [WRITE] Updated device $indexDevice: name=$updatedName, port=$updatedPort, endpoint=$updatedEndpoint")
 
-            _deviceMapState.update {
+            _deviceMapState.updateFlow {
                 deviceMap.mapValues { (_, device) ->
                     DeviceDto(device.name, device.port, device.deviceEndpoint)
                 }
@@ -233,7 +241,7 @@ class DeviceManagerJson(
                 configuredDevices = deviceMap
                 println("Successfully deleted device with ID: $idLabel")
                 
-                _deviceMapState.update {
+                _deviceMapState.updateFlow {
                     deviceMap.mapValues { (_, device) ->
                         DeviceDto(device.name, device.port, device.deviceEndpoint)
                     }
