@@ -4,6 +4,7 @@ plugins {
     id 'org.springframework.boot' version '4.1.0'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'org.asciidoctor.jvm.convert' version '4.0.5'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.21'
 }
 
 group = 'org.example'
@@ -39,6 +40,7 @@ dependencies {
     implementation 'org.springframework.security:spring-security-crypto'
     implementation 'co.touchlab:kermit:2.0.4'
     implementation 'io.jsonwebtoken:jjwt-api:0.12.5'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3'
 
     implementation 'io.projectreactor.kotlin:reactor-kotlin-extensions'
     implementation 'org.jetbrains.kotlin:kotlin-reflect'
@@ -48,7 +50,7 @@ dependencies {
     // GOOGLE DRIVE API (Cleaned & Corrected)
     implementation 'com.google.api-client:google-api-client:2.7.0'
     implementation 'com.google.oauth-client:google-oauth-client-jetty:1.36.0'
-    implementation 'com.google.apis:google-api-services-drive:v3-rev20240521-2.0.0' // <-- Only this correct version remains
+    implementation 'com.google.apis:google-api-services-drive:v3-rev20240521-2.0.0'
     implementation 'com.google.auth:google-auth-library-oauth2-http:1.23.0'
 
     // Testing Dependencies

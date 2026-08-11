@@ -1,0 +1,58 @@
+> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :processResources UP-TO-DATE
+> Task :compileKotlin
+> Task :compileJava NO-SOURCE
+> Task :classes UP-TO-DATE
+> Task :resolveMainClassName
+
+> Task :bootRun
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.1.0)
+
+2026-08-11T04:00:45.462+02:00  INFO 21533 --- [           main] o.e.a.AmiePackageRepositoryApplicationKt : Starting AmiePackageRepositoryApplicationKt using Java 17.0.14 with PID 21533 (/Users/samuel/Documents/GitHub/Amie/packageRepository/build/classes/kotlin/main started by samuel in /Users/samuel/Documents/GitHub/Amie/packageRepository)
+2026-08-11T04:00:45.464+02:00  INFO 21533 --- [           main] o.e.a.AmiePackageRepositoryApplicationKt : No active profile set, falling back to 1 default profile: "default"
+2026-08-11T04:00:45.879+02:00  INFO 21533 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-08-11T04:00:45.880+02:00  INFO 21533 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JDBC repositories in DEFAULT mode.
+2026-08-11T04:00:45.912+02:00  INFO 21533 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data JDBC - Could not safely identify store assignment for repository candidate interface org.example.amiepackagerepository.DeviceStatusRepository; If you want this repository to be a JDBC repository, consider annotating your entities with one of these annotations: org.springframework.data.relational.core.mapping.Table.
+2026-08-11T04:00:45.914+02:00  INFO 21533 --- [           main] .RepositoryConfigurationExtensionSupport : Spring Data JDBC - Could not safely identify store assignment for repository candidate interface org.example.amiepackagerepository.UserRepository; If you want this repository to be a JDBC repository, consider annotating your entities with one of these annotations: org.springframework.data.relational.core.mapping.Table.
+2026-08-11T04:00:45.914+02:00  INFO 21533 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 29 ms. Found 0 JDBC repository interfaces.
+2026-08-11T04:00:45.928+02:00  INFO 21533 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-08-11T04:00:45.929+02:00  INFO 21533 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-08-11T04:00:46.019+02:00  INFO 21533 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 73 ms. Found 2 JPA repository interfaces.
+2026-08-11T04:00:46.223+02:00  INFO 21533 --- [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat initialized with port 8080 (http)
+2026-08-11T04:00:46.228+02:00  INFO 21533 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-08-11T04:00:46.228+02:00  INFO 21533 --- [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/11.0.22]
+2026-08-11T04:00:46.247+02:00  INFO 21533 --- [           main] b.w.c.s.WebApplicationContextInitializer : Root WebApplicationContext: initialization completed in 761 ms
+2026-08-11T04:00:46.305+02:00  INFO 21533 --- [           main] org.hibernate.orm.jpa                    : HHH008540: Processing PersistenceUnitInfo [name: default]
+2026-08-11T04:00:46.333+02:00  INFO 21533 --- [           main] org.hibernate.orm.core                   : HHH000001: Hibernate ORM core version 7.4.1.Final
+2026-08-11T04:00:46.558+02:00  INFO 21533 --- [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-08-11T04:00:46.569+02:00  INFO 21533 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-08-11T04:00:46.604+02:00  INFO 21533 --- [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@25d23478
+2026-08-11T04:00:46.604+02:00  INFO 21533 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-08-11T04:00:46.619+02:00  WARN 21533 --- [           main] org.hibernate.orm.deprecation            : HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-08-11T04:00:46.627+02:00  INFO 21533 --- [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [jdbc:postgresql://localhost:5432/AmiesUsersDB]
+	Database driver: PostgreSQL JDBC Driver
+	Database dialect: PostgreSQLDialect
+	Database version: 15.16
+	Default catalog/schema: AmiesUsersDB/public
+	Autocommit mode: undefined/unknown
+	Isolation level: READ_COMMITTED [default READ_COMMITTED]
+	JDBC fetch size: none
+	Pool: DataSourceConnectionProvider
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2026-08-11T04:00:46.941+02:00  INFO 21533 --- [           main] org.hibernate.orm.core                   : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-08-11T04:00:46.984+02:00  INFO 21533 --- [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-08-11T04:00:47.023+02:00  INFO 21533 --- [           main] o.s.d.j.r.query.QueryEnhancerFactories   : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-08-11T04:00:47.366+02:00  WARN 21533 --- [           main] JpaBaseConfiguration$JpaWebConfiguration : spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-08-11T04:00:47.447+02:00  WARN 21533 --- [           main] ion$DefaultTemplateResolverConfiguration : Cannot find template location: classpath:/templates/ (please add some templates, check your Thymeleaf configuration, or set spring.thymeleaf.check-template-location=false)
+2026-08-11T04:00:47.545+02:00  INFO 21533 --- [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat started on port 8080 (http) with context path '/'
+2026-08-11T04:00:47.548+02:00  INFO 21533 --- [           main] o.e.a.AmiePackageRepositoryApplicationKt : Started AmiePackageRepositoryApplicationKt in 2.229 seconds (process running for 2.423)

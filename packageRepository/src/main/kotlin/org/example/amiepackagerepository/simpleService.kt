@@ -55,7 +55,9 @@ data class GithubContentResponse(
 	val url: String,
 	val html_url: String,
 	val download_url: String?,
-	val type: String
+	val type: String,
+	val content: String? = null,
+	val encoding: String? = null
 )
 
 data class GithubSearchItem(
@@ -85,28 +87,24 @@ open class SimpleService {
 		})
 		.build()
 
-	/**
-	 * Lists files from the GitHub repository 'samging/codeRepository' in the 'uploads/' folder.
-	 */
 	fun listFilesGithub(): List<GithubItem> {
-		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
+		if (githubToken != null) {
+			val safeToken = if (githubToken.length > 8) "${githubToken.take(4)}...${githubToken.takeLast(4)}" else "****"
+			println("DEBUG: Using GITHUB_TOKEN (Length: ${githubToken.length}): $safeToken")
+		} else {
+			println("DEBUG: GITHUB_TOKEN is NULL in environment")
+		}
 
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
 		val path = "uploads"
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
 
-		if (githubToken.isNullOrBlank()) {
-			println("WARNING: GITHUB_TOKEN is not set. Private repos will return 404.")
-		}
-
 		return try {
 			val response = restClient.get()
 				.uri(url)
-				.let { spec ->
-					if (!githubToken.isNullOrBlank()) spec.header("Authorization", "Bearer $githubToken")
-					else spec
-				}
+				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.retrieve()
@@ -132,8 +130,49 @@ open class SimpleService {
 		}
 	}
 
+	/**
+	 * Recursively lists all files in a user's upload directory.
+	 */
+	fun listUserPackages(username: String): List<GithubContentResponse> {
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
+		val repoOwner = "samging"
+		val repoName = "codeRepository"
+		val rootPath = "uploads/$username"
+		
+		val allFiles = mutableListOf<GithubContentResponse>()
+		
+		fun walk(path: String) {
+			val encodedPath = path.split("/").joinToString("/") { 
+				java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") 
+			}
+			val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
+			try {
+				val response = restClient.get()
+					.uri(url)
+					.header("Authorization", "Bearer ${githubToken ?: ""}")
+					.header("Accept", "application/vnd.github+json")
+					.header("X-GitHub-Api-Version", "2022-11-28")
+					.retrieve()
+					.body(object : ParameterizedTypeReference<List<GithubContentResponse>>() {})
+				
+				response?.forEach { item ->
+					if (item.type == "dir") {
+						walk(item.path)
+					} else if (item.type == "file" && !item.name.endsWith(".md")) {
+						allFiles.add(item)
+					}
+				}
+			} catch (e: Exception) {
+				println("DEBUG: Error walking path $path: ${e.message}")
+			}
+		}
+		
+		walk(rootPath)
+		return allFiles
+	}
+
 	fun queryFilesGithub(query: String = ""): GithubContentResponse? {
-		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
 		val path = "uploads"
@@ -145,9 +184,13 @@ open class SimpleService {
 
 		val fullFileName = "$fileName.$fileExtension"
 		val targetPath = "$path/$fullFileName"
+		
+		val encodedPath = targetPath.split("/").joinToString("/") { 
+			java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") 
+		}
 
 		// GitHub Contents API URL for a specific file path
-		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$targetPath"
+		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
 		println("Generated URL: $url")
 
 		return try {
@@ -155,7 +198,7 @@ open class SimpleService {
 			val responseEntity = restClient
 				.get()
 				.uri(url)
-				.header("Authorization", "Bearer $githubToken")
+				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.retrieve()
@@ -208,9 +251,14 @@ open class SimpleService {
 	fun createUserDashboard(rootRepo: String = "codeRepository", username: String) {
 		if (username.isEmpty()) return
 
-		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
-		val url = "https://api.github.com/repos/$repoOwner/$rootRepo/contents/uploads/$username/README.md"
+		
+		val rawPath = "uploads/$username/README.md"
+		val encodedPath = rawPath.split("/").joinToString("/") { 
+			java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") 
+		}
+		val url = "https://api.github.com/repos/$repoOwner/$rootRepo/contents/$encodedPath"
 
 		// Run in background to avoid blocking login/register response
 		CompletableFuture.runAsync {
@@ -218,7 +266,7 @@ open class SimpleService {
 				// 1. Check if the file already exists
 				val checkResponse = restClient.get()
 					.uri(url)
-					.header("Authorization", "Bearer $githubToken")
+					.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 					.header("Accept", "application/vnd.github+json")
 					.header("X-GitHub-Api-Version", "2022-11-28")
 					.retrieve()
@@ -243,7 +291,7 @@ open class SimpleService {
 			try {
 				restClient.put()
 					.uri(url)
-					.header("Authorization", "Bearer $githubToken")
+					.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 					.header("Accept", "application/vnd.github+json")
 					.header("X-GitHub-Api-Version", "2022-11-28")
 					.body(body)
@@ -289,68 +337,89 @@ open class SimpleService {
 		outputStream.close()
 	}
 
-	fun uploadFile(username: String, file: MultipartFile) {
-		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
+	fun uploadFile(username: String,
+				   progLanguage: String,
+				   file: MultipartFile) {
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
 		val fileName = file.originalFilename ?: "unnamed_file"
 		
-		// Upload to user's specific folder
-		val path = if (username.isNotBlank()) "uploads/$username/$fileName" else "uploads/$fileName"
+		// Sanitize and encode path components
+		val safeUsername = URLEncoder.encode(username.trim(), "UTF-8").replace("+", "%20")
+		val safeLang = URLEncoder.encode(progLanguage.trim(), "UTF-8").replace("+", "%20")
+		val safeFileName = URLEncoder.encode(fileName.trim(), "UTF-8").replace("+", "%20")
 		
-		val contentBase64 = Base64.getEncoder().encodeToString(file.bytes)
-		
+		val path = if (username.isNotBlank()) "uploads/$safeUsername/$safeLang/$safeFileName" else "uploads/$safeLang/$safeFileName"
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
-		
-		// 1. We need to check if the file exists to get its SHA if we want to overwrite, 
-		// but for now, let's assume we are creating a new version or new file.
-		// GitHub PUT requires SHA for updates.
-		
+		val contentBase64 = Base64.getEncoder().encodeToString(file.bytes)
+
+		// 1. Check if the file already exists to get its SHA (required for updates)
+		var existingSha: String? = null
+		try {
+			val checkResponse = restClient.get()
+				.uri(url)
+				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
+				.header("Accept", "application/vnd.github+json")
+				.header("X-GitHub-Api-Version", "2022-11-28")
+				.retrieve()
+				.body(GithubContentResponse::class.java)
+			
+			existingSha = checkResponse?.sha
+			println("DEBUG: File exists on GitHub, updating with SHA: $existingSha")
+		} catch (e: Exception) {
+			println("DEBUG: File does not exist at $path, creating new one.")
+		}
+
 		val body = mutableMapOf(
-			"message" to "Upload $fileName via Amie Repository for $username",
+			"message" to "Upload $fileName via Amie Repository for $username ($progLanguage)",
 			"content" to contentBase64
 		)
+		
+		if (existingSha != null) {
+			body["sha"] = existingSha
+		}
 
 		try {
 			val response = restClient.put()
 				.uri(url)
-				.header("Authorization", "Bearer $githubToken")
+				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.body(body)
 				.retrieve()
-				.onStatus({ it.value() == 422 }, { _, _ ->
-					throw RuntimeException("File already exists. Overwrite not yet implemented (requires SHA).")
-				})
 				.toEntity(String::class.java)
 
-			println("GitHub Upload Success for $username! Status: ${response.statusCode.value()}")
+			println("GitHub Upload Success for $username! Path: $path, Status: ${response.statusCode.value()}")
 		} catch (e: Exception) {
-			println("CRITICAL: GitHub API Error: ${e.message}")
+			println("CRITICAL: GitHub API Error at path $path: ${e.message}")
 			throw e
 		}
 	}
 
 	fun sendEdit(username: String, fileName: String, updateFile: MultipartFile) {
-		val githubToken = System.getenv("GITHUB_TOKEN") ?: "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"
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
 		
 		val path = if (username.isNotBlank()) "uploads/$username/$fileName" else "uploads/$fileName"
-		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+		
+		// Properly encode the path segments
+		val encodedPath = path.split("/").joinToString("/") { 
+			java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") 
+		}
+		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
 
 		try {
-			// 1. Get the current file to retrieve its SHA
 			val currentFile = restClient.get()
 				.uri(url)
-				.header("Authorization", "Bearer $githubToken")
+				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.retrieve()
 				.body(GithubContentResponse::class.java) ?: throw RuntimeException("File not found for update: $path")
 
-			// 2. Prepare the update body
 			val contentBase64 = Base64.getEncoder().encodeToString(updateFile.bytes)
 			val body = mapOf(
 				"message" to "Update $fileName via Amie Repository for $username",
@@ -358,10 +427,9 @@ open class SimpleService {
 				"sha" to currentFile.sha
 			)
 
-			// 3. Send the PUT request to update
 			val response = restClient.put()
 				.uri(url)
-				.header("Authorization", "Bearer $githubToken")
+				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.body(body)
@@ -372,6 +440,46 @@ open class SimpleService {
 		} catch (e: Exception) {
 			println("CRITICAL: GitHub API Update Error: ${e.message}")
 			throw e
+		}
+	}
+
+	fun uploadFileData(username: String, fileName: String, data: ByteArray) {
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
+		val repoOwner = "samging"
+		val repoName = "codeRepository"
+		val path = "uploads/$username/$fileName"
+		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+		val contentBase64 = Base64.getEncoder().encodeToString(data)
+
+		var existingSha: String? = null
+		try {
+			val checkResponse = restClient.get()
+				.uri(url)
+				.header("Authorization", "Bearer ${githubToken ?: ""}")
+				.header("Accept", "application/vnd.github+json")
+				.header("X-GitHub-Api-Version", "2022-11-28")
+				.retrieve()
+				.body(GithubContentResponse::class.java)
+			existingSha = checkResponse?.sha
+		} catch (e: Exception) {}
+
+		val body = mutableMapOf(
+			"message" to "Update $fileName via Amie Device Manager",
+			"content" to contentBase64
+		)
+		if (existingSha != null) body["sha"] = existingSha
+
+		try {
+			restClient.put()
+				.uri(url)
+				.header("Authorization", "Bearer ${githubToken ?: ""}")
+				.header("Accept", "application/vnd.github+json")
+				.header("X-GitHub-Api-Version", "2022-11-28")
+				.body(body)
+				.retrieve()
+				.toBodilessEntity()
+		} catch (e: Exception) {
+			println("DEBUG: GitHub data sync failed: ${e.message}")
 		}
 	}
 

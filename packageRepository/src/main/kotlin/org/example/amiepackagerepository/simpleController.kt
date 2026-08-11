@@ -7,6 +7,8 @@ import org.springframework.web.server.ResponseStatusException
 import org.springframework.http.HttpStatus
 import java.io.File
 import io.jsonwebtoken.Claims
+import java.util.concurrent.CompletableFuture
+import org.springframework.http.ResponseEntity
 
 /**
  * REST Controller providing HTTP endpoints to interact with Google Drive and GitHub.
@@ -62,10 +64,17 @@ class SimpleController(
 	@PostMapping("/upload")
 	fun uploadFile(
 		@RequestParam("file") file: MultipartFile,
-		@RequestParam("username") username: String
+		@RequestParam(value = "progLanguage", defaultValue = "unknown") progLanguage: String,
+		@RequestParam("username") username: String,
+		@RequestHeader("Authorization") authHeader: String
 	): String {
+		val token = authHeader.removePrefix("Bearer ")
+		val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
+		if (claims.subject != username) throw ResponseStatusException(HttpStatus.FORBIDDEN)
+
+		println("DEBUG: Upload request received - file: ${file.originalFilename}, progLanguage: $progLanguage, username: $username")
 		return try {
-			simpleService.uploadFile(username, file)
+			simpleService.uploadFile(username, progLanguage, file)
 			"File uploaded successfully"
 		} catch (e: com.google.api.client.googleapis.json.GoogleJsonResponseException) {
 			"Google API Error: ${e.details?.message ?: e.message}"
@@ -78,8 +87,13 @@ class SimpleController(
 	fun editFile(
 		@RequestParam("file") file: MultipartFile,
 		@RequestParam("filename") fileName: String,
-		@RequestParam("username") username: String
+		@RequestParam("username") username: String,
+		@RequestHeader("Authorization") authHeader: String
 	): String {
+		val token = authHeader.removePrefix("Bearer ")
+		val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
+		if (claims.subject != username) throw ResponseStatusException(HttpStatus.FORBIDDEN)
+
 		return try {
 			simpleService.sendEdit(username, fileName, file)
 			"File updated successfully"
@@ -91,6 +105,43 @@ class SimpleController(
 	@GetMapping("/query")
 	fun queryFiles(@RequestParam query: String): Any {
 		return simpleService.queryFilesGithub(query) ?: emptyList<Any>()
+	}
+
+	@GetMapping("/user-packages")
+	fun getUserPackages(@RequestParam username: String): List<GithubContentResponse> {
+		return simpleService.listUserPackages(username)
+	}
+
+	@PostMapping("/device-repository-controller")
+	fun deviceRepositoryController(@RequestParam action: DeviceActions,
+	                               @RequestParam username: String = "",
+	                               @RequestBody deviceMap: Map<String, DeviceDto>
+	): CompletableFuture<ResponseEntity<String>> {
+        println("DEBUG: Received device repository request: action=$action, username=$username, devices=${deviceMap.size}")
+
+		return deviceService.repositoryDeviceController(action, username, deviceMap).exceptionally { ex ->
+            val cause = ex.cause ?: ex
+            val status = when (cause) {
+                is IllegalArgumentException -> HttpStatus.BAD_REQUEST
+                is NoSuchElementException -> HttpStatus.NOT_FOUND
+                is SecurityException -> HttpStatus.FORBIDDEN
+                is IllegalStateException -> HttpStatus.CONFLICT
+                is UnsupportedOperationException -> HttpStatus.NOT_IMPLEMENTED
+                is org.springframework.web.client.HttpClientErrorException -> {
+                    HttpStatus.valueOf(cause.statusCode.value())
+                }
+                else -> HttpStatus.INTERNAL_SERVER_ERROR
+            }
+
+            val errorMessage = when {
+                cause is org.springframework.web.client.HttpClientErrorException -> {
+                    "Repository Provider Error: ${cause.responseBodyAsString}"
+                }
+                else -> cause.message ?: "An unexpected error occurred"
+            }
+
+			ResponseEntity.status(status).body("Action Failed: $errorMessage")
+		}
 	}
 
 	@PostMapping("/register")

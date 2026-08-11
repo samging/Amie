@@ -7,7 +7,7 @@ class DeviceManagerFactory private constructor() {
 
         companion object {
             fun create(file: File): DeviceManager = when(file.extension){
-                "csv" -> DeviceManagerCsv()
+                "csv" -> DeviceManagerCsv(file)
                 "json" -> DeviceManagerJson(file)
                 else -> throw IllegalArgumentException("cant")
             }

@@ -137,21 +137,24 @@ fun AppNavigation() {
                     name = "Device Name",
                     valueOf = connectionState.name,
                     hideButton = true,
-                    onValueChange = { connectionState = connectionState.copy(name = it)}
+                    onValueChange = { connectionState = connectionState.copy(name = it)},
+                    deviceManager = configReader
                 )
 
                 PeripheralPanel(
                     name = "Device Port",
                     valueOf = connectionState.port,
                     hideButton = true,
-                    onValueChange = { connectionState = connectionState.copy(port = it) }
+                    onValueChange = { connectionState = connectionState.copy(port = it) },
+                    deviceManager = configReader
                 )
 
                 PeripheralPanel(
                     name = "Device Endpoint",
                     valueOf = connectionState.deviceEndpoint,
                     hideButton = true,
-                    onValueChange = { connectionState = connectionState.copy(deviceEndpoint = it) }
+                    onValueChange = { connectionState = connectionState.copy(deviceEndpoint = it) },
+                    deviceManager = configReader
                 )
 
                 SystemCommit(
@@ -163,6 +166,7 @@ fun AppNavigation() {
                         connectionState.port,
                         connectionState.deviceEndpoint
                     ),
+                    deviceManager = configReader,
                     redirectOnOk = {
                         navController.previousBackStackEntry
                             ?.savedStateHandle
@@ -218,7 +222,7 @@ fun AppNavigation() {
                 )
                 val currentDevice = configReader.parseConfigByTargetId("deviceEndpoint",deviceId)
 
-                PeripheralPanel(name="Endpoint Device", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "deviceEndpoint")
+                PeripheralPanel(name="Endpoint Device", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "deviceEndpoint", deviceManager = configReader)
                 Text(text="Current name: ${currentDevice.toString()}")
                 val getAllNames = configReader.parseConfig("deviceEndpoint")
                 val allNames: Map<Int, String> = getAllNames.withIndex().associate { it.index to it.value }
@@ -247,7 +251,7 @@ fun AppNavigation() {
             Column(modifier = Modifier.fillMaxSize()) {
                 WindowHeader(name = "Amie App", endController = 3,onBack = { navController.popBackStack() })
                 val currentPort = configReader.parseConfigByTargetId("port",deviceId)
-                PeripheralPanel(name="Serial Port", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "port")
+                PeripheralPanel(name="Serial Port", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "port", deviceManager = configReader)
                 Text(text="Current port: ${currentPort.toString()}")
                 DataEntryList(name = "a", modifier = Modifier, activeFields = activePortsMap, currentlyActive = listOf(0))
             }
@@ -259,7 +263,7 @@ fun AppNavigation() {
 
             Column(modifier = Modifier.fillMaxSize()) {
                 WindowHeader(name = "Amie App", endController = 3,onBack = { navController.popBackStack() })
-                PeripheralPanel(name="Device Name", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "name")
+                PeripheralPanel(name="Device Name", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "name", deviceManager = configReader)
                 val currentName = configReader.parseConfigByTargetId("name",deviceId)
                 Text(text="Current name: ${currentName.toString()}")
                 DataEntryList(name = "a", modifier = Modifier, activeFields = mapOf(1 to "Device 1", 2 to "Device 2", 3 to "Device 3"), currentlyActive = listOf(1,2,3))
@@ -321,7 +325,7 @@ fun AppNavigation() {
         composable(route = "changeEndpoint/{deviceId}") { backStackEntry ->
             Column(modifier = Modifier.fillMaxSize()) {
                 WindowHeader(name = "Amie App", endController = 3,onBack = { navController.popBackStack() })
-                PeripheralPanel(name="devices to toggle", modifier = Modifier)
+                PeripheralPanel(name="devices to toggle", modifier = Modifier, deviceManager = configReader)
             }
         }
     }

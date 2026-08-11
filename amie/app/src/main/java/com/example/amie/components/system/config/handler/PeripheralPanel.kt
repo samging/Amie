@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.amie.data.remote.parser.DeviceManagerJson
+import com.example.amie.data.remote.parser.DeviceManager
+import com.example.amie.data.remote.parser.DeviceManagerCsv
 
 import androidx.compose.ui.platform.LocalContext
 import java.io.File
@@ -45,7 +47,8 @@ fun PeripheralPanel(name: String,
                     onValueChange: (String) -> Unit = {},
                     customText: String = "Connect",
                     keyQuery: String = "",
-                    writeId: String? = null) {
+                    writeId: String? = null,
+                    deviceManager: DeviceManager? = null) {
     val dummyDevices = listOf("dev1", "dev2", "dev3")
     val context = LocalContext.current
     val configFile = File(context.filesDir, "componentSettings.json")
@@ -79,11 +82,20 @@ fun PeripheralPanel(name: String,
                     selectedDevice = buffer
                     errorMessage = ""
                     onValueChange(buffer)
-                    DeviceManagerJson().writeConfig(
-                        writeId.toString(),
-                        listOf(keyQuery),
-                        listOf(buffer),
-                        configFile = configFile)
+                    
+                    if (deviceManager is DeviceManagerJson) {
+                        deviceManager.writeConfig(
+                            writeId.toString(),
+                            listOf(keyQuery),
+                            listOf(buffer),
+                            configFile = configFile)
+                    } else if (deviceManager is DeviceManagerCsv) {
+                        deviceManager.writeConfig(
+                            writeId.toString(),
+                            listOf(keyQuery),
+                            listOf(buffer),
+                            configFile = configFile)
+                    }
                 } else {
                     selectedDevice = null
                     errorMessage = "Couldn't find device name"

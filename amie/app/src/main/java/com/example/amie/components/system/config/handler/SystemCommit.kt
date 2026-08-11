@@ -1,6 +1,8 @@
 package com.example.amie.components.system.config.handler
 import androidx.compose.runtime.Composable
 import com.example.amie.data.remote.parser.DeviceManagerJson
+import com.example.amie.data.remote.parser.DeviceManager
+import com.example.amie.data.remote.parser.DeviceManagerCsv
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -22,8 +24,7 @@ import java.io.File
  * @param redirectOnOk A navigation or state-clearing callback function invoked immediately after the configuration transaction finishes.
  */
 @Composable
-fun SystemCommit(modifier: Modifier, indexDevice: String, keyValues: List<String>, valuesOf: List<String>, redirectOnOk: () -> Unit) {
-    val sysConfig = DeviceManagerJson()
+fun SystemCommit(modifier: Modifier, indexDevice: String, keyValues: List<String>, valuesOf: List<String>, deviceManager: DeviceManager, redirectOnOk: () -> Unit) {
     val context = LocalContext.current
     val configFile = File(context.filesDir, "componentSettings.json")
 
@@ -31,12 +32,21 @@ fun SystemCommit(modifier: Modifier, indexDevice: String, keyValues: List<String
         Button(
             modifier = Modifier.padding(start = 15.dp),
             onClick = {
-            sysConfig.writeConfig(
-                indexDevice = indexDevice,
-                keyValue = keyValues,
-                valueOf = valuesOf,
-                configFile = configFile
-            )
+            if (deviceManager is DeviceManagerJson) {
+                deviceManager.writeConfig(
+                    indexDevice = indexDevice,
+                    keyValue = keyValues,
+                    valueOf = valuesOf,
+                    configFile = configFile
+                )
+            } else if (deviceManager is DeviceManagerCsv) {
+                deviceManager.writeConfig(
+                    indexDevice = indexDevice,
+                    keyValue = keyValues,
+                    valueOf = valuesOf,
+                    configFile = configFile
+                )
+            }
             redirectOnOk()
         }
         ) {

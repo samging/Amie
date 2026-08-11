@@ -8,12 +8,19 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import java.io.IOException
 import io.ktor.client.network.sockets.ConnectTimeoutException
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.serialization.kotlinx.json.*
 
 val sharedHttpClient = HttpClient(CIO) {
     install(HttpTimeout) {
-        requestTimeoutMillis = 15000
-        connectTimeoutMillis = 15000
-        socketTimeoutMillis = 15000
+        requestTimeoutMillis = 60000
+        connectTimeoutMillis = 60000
+        socketTimeoutMillis = 60000
+    }
+    install(ContentNegotiation) {
+        json(kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+        })
     }
 }
 

@@ -44,6 +44,10 @@ class DeviceManagerCsv(private var configFile: File = File("/data/local/tmp/comp
         }
     }
 
+    override fun load() {
+        load(this.configFile)
+    }
+
     override fun count(): Int = configuredDevices.size
 
     override fun getDevice(deviceKey: String): Device? = configuredDevices[deviceKey]
@@ -86,6 +90,10 @@ class DeviceManagerCsv(private var configFile: File = File("/data/local/tmp/comp
             configuredDevices = mutableMap
             saveToDisk()
         }
+    }
+
+    override fun setSession(username: String) {
+        // CSV is local-only, no network session needed for now
     }
 
     /**

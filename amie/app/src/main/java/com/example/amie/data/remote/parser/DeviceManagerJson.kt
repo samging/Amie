@@ -6,73 +6,104 @@ import kotlinx.serialization.json.Json
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.encodeToString
-import kotlin.collections.iterator
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import com.example.amie.data.remote.DeviceDto
+import com.example.amie.data.remote.DeviceActions
+import com.example.amie.data.remote.DeviceRemoteService
+import com.example.amie.util.sharedHttpClient
 
+/**
+ * A dummy PostResponse to satisfy compilation if not defined elsewhere.
+ */
+data class PostResponse(val status: String)
 
 /**
  * A direct subsystem storage management utility responsible for reading, updating, generating,
  * and querying JSON configuration profiles stored at `/data/local/tmp/componentSettings.json`.
- * This class exposes dynamic UI tracking fields through Compose backing properties to push real-time
- * structural mutations straight to active composable components.
- *
- * * ### Architectural & Performance Warnings
- * > `writeConfig`, `deleteById`, etc. performs synchronous disk execution loops directly from the calling thread.
- * > **Never call these from a Composable layout container.** Move these operations into a `ViewModel` or
- * > execute them safely within `Dispatchers.IO` coroutine scopes.
- * > uses a forced non-null assertion (`!!`). If the profile map is completely blank or contains keys that aren't numeric
- * > integers, this call **will crash the application instantly** with a `NullPointerException`.
- * > duplicate states loading from the exact same JSON asset path. Combine their logic into a single source of truth.
- * > word `"undefined"` to disk. This corrupts the optional field structure, turning a valid `null` value into a populated String.
  */
+class DeviceManagerJson(
+    private var configFile: File = File("/data/local/tmp/componentSettings.json"),
+    private val deviceService: DeviceRemoteService = DeviceRemoteService(sharedHttpClient)
+) : DeviceManager {
 
-class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/componentSettings.json")) : DeviceManager {
-    /**
-     * Read-only public state tracking window layer presentation details.
-     */
-    /*
-    var phoneLayers by mutableStateOf(PhoneRendering(windowRendering = 0))
-        private set
+    private var currentUsername: String = ""
+    private val scope = CoroutineScope(Dispatchers.IO)
 
-    /** Updates the composite presentation layer configurations. */
-    fun setPhoneLayers(newNumber: Int) {
-        phoneLayers = phoneLayers.copy(windowRendering = newNumber)
-    }
-    */
-    /**
-     * Active configuration state map used to sync state changes downstream into the Compose runtime layer.
-     */
     private var configuredDevices by mutableStateOf<Map<String, Device>>(emptyMap())
 
-    /**
-     * Reads the configuration manifest directly from local disk and updates the reactive [configuredDevices] state cache.
-     * Drops back to an empty collection state gracefully if files are missing or unparseable.
-     */
-    /*fun loadConfiguration() {
-        val file = File("/data/local/tmp/componentSettings.json")
-        if (!file.exists()) {
-            configuredDevices = emptyMap()
-            return
-        }
+    private val _postResult = MutableStateFlow<Result<PostResponse>?>(null)
+    val postResult: StateFlow<Result<PostResponse>?> = _postResult.asStateFlow()
 
-        try {
-            val jsonContent = file.readText().trim()
-            if (jsonContent.isEmpty()) {
-                configuredDevices = emptyMap()
-                return
+    // State holder for your devices mapped across the class
+    private val _deviceMapState = MutableStateFlow<Map<String, DeviceDto>>(emptyMap())
+    val deviceMapState: StateFlow<Map<String, DeviceDto>> = _deviceMapState.asStateFlow()
+
+    init {
+        load()
+        syncGet()
+    }
+
+    private fun syncGet() {
+        val effectiveUsername = currentUsername.ifEmpty { "user1" }
+        scope.launch {
+            println("DEBUG: Fetching remote config for user: $effectiveUsername")
+            val initialMap = deviceService.repositoryDeviceController(
+                action = DeviceActions.GET,
+                username = effectiveUsername,
+                deviceMap = emptyMap()
+            )
+            _deviceMapState.value = initialMap
+        }
+    }
+
+    override fun setSession(username: String) {
+        this.currentUsername = username
+        syncGet()
+    }
+
+    private inline fun <T> MutableStateFlow<T>.update(
+        noinline function: (T) -> T = { it }
+    ) {
+        this.value = function(this.value)
+        val currentValue = this.value
+
+        if (currentValue is Map<*, *>) {
+            @Suppress("UNCHECKED_CAST")
+            val mapValue = currentValue as Map<String, DeviceDto>
+
+            val effectiveUsername = currentUsername.ifEmpty { "user1" }
+            
+            println("DEBUG: [SYNC-START] Triggering remote sync for user: $effectiveUsername with ${mapValue.size} devices")
+            scope.launch {
+                try {
+                    val result = deviceService.repositoryDeviceController(
+                        action = DeviceActions.SET,
+                        username = effectiveUsername,
+                        deviceMap = mapValue
+                    )
+                    println("DEBUG: [SYNC-SUCCESS] Remote sync completed for user: $effectiveUsername. Backend returned ${result.size} devices.")
+                    _postResult.value = Result.success(PostResponse("Success"))
+                } catch (e: Exception) {
+                    println("DEBUG: [SYNC-ERROR] Remote sync failed for user: $effectiveUsername. Reason: ${e.message}")
+                    _postResult.value = Result.failure(e)
+                }
             }
-
-            configuredDevices = Json.decodeFromString<Map<String, Device>>(jsonContent)
-
-        } catch (e: Exception) {
-            println("Failed to read configuration: ${e.message}")
-            configuredDevices = emptyMap()
         }
-    }*/
+    }
+
     override fun load(
         configFile: File
     ) {
+        println("DEBUG: [LOAD] Loading configuration from: ${configFile.absolutePath}")
         this.configFile = configFile
+
         if (!this.configFile.exists()) {
+            println("DEBUG: [LOAD] Configuration file does not exist. Initializing with empty map.")
             configuredDevices = emptyMap()
             return
         }
@@ -80,30 +111,29 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
         try {
             val jsonContent = configFile.readText().trim()
             if (jsonContent.isEmpty()) {
+                println("DEBUG: [LOAD] Configuration file is empty.")
                 configuredDevices = emptyMap()
                 return
             }
 
             configuredDevices = Json.decodeFromString<Map<String, Device>>(jsonContent)
+            println("DEBUG: [LOAD] Successfully loaded ${configuredDevices.size} devices from disk.")
 
         } catch (e: Exception) {
-            println("Failed to read configuration: ${e.message}")
+            println("DEBUG: [LOAD-ERROR] Failed to read configuration: ${e.message}")
             configuredDevices = emptyMap()
         }
     }
 
-    /**
-     * Modifies or appends fields on a specified device record and saves the serialized results to disk.
-     *
-     * @param indexDevice The distinct primary key tag indexing the targeted device record inside the root map layout.
-     * @param keyValue A sequential sequence array specifying the precise property keys to override (`"name"`, `"port"`, etc.).
-     * @param valueOf A sequential string map value payload correlating precisely by list offset index to parameters in [keyValue].
-     * @return A status collection containing an operation log statement or a tagged `[Error]` notice log.
-     */
+    override fun load() {
+        load(this.configFile)
+    }
+
     fun writeConfig(indexDevice: String, keyValue: List<String>, valueOf: List<String>, configFile: File? = null): List<String>{
         val targetFile = configFile ?: this.configFile
 
         if (!targetFile.exists()) {
+            targetFile.parentFile?.mkdirs()
             targetFile.createNewFile()
             targetFile.writeText("{}")
         }
@@ -122,34 +152,36 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
             var updatedPort = existingDevice.port
             var updatedEndpoint = existingDevice.deviceEndpoint
 
-                for ((index, keyItem) in keyValue.withIndex()) { //List of keys ("port", "name", ...)
-                    when (keyItem) {
-                        "name" -> updatedName = valueOf[index]
-                        "port" -> updatedPort = valueOf[index]
-                        "deviceEndpoint" -> updatedEndpoint = valueOf[index]
-                    }
+            for ((index, keyItem) in keyValue.withIndex()) {
+                when (keyItem) {
+                    "name" -> updatedName = valueOf[index]
+                    "port" -> updatedPort = valueOf[index]
+                    "deviceEndpoint" -> updatedEndpoint = valueOf[index]
                 }
+            }
 
             deviceMap[indexDevice] = Device(name = updatedName ?: "undefined", port = updatedPort ?: "undefined", deviceEndpoint = updatedEndpoint ?: "undefined")
+            println("DEBUG: [WRITE] Updated device $indexDevice: name=$updatedName, port=$updatedPort, endpoint=$updatedEndpoint")
 
+            _deviceMapState.update {
+                deviceMap.mapValues { (_, device) ->
+                    DeviceDto(device.name, device.port, device.deviceEndpoint)
+                }
+            }
             val updatedJsonContent = Json { prettyPrint = true }.encodeToString(deviceMap)
 
             targetFile.writeText(updatedJsonContent)
+            configuredDevices = deviceMap
             return listOf("updated!")
         } catch (e: Exception) {
             println("Parser error: ${e.toString()}")
             return listOf("[Error]: writer/updater")
-
         }
     }
 
-    /**
-     * Scans the underlying file system configuration keys to automatically generate a non-clashing numeric identity key string.
-     * * @return The calculated next index string token increments, or an operation error message.
-     */
     override fun generateAddId(): String {
         if (!configFile.exists()) {
-            return "1" // Start with 1 if file doesn't exist
+            return "1"
         }
 
         return try {
@@ -165,15 +197,13 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
             if (existingIds.isEmpty()) {
                 "1"
             } else {
-                (existingIds.maxOrNull()!! + 1).toString()
+                (existingIds.maxOrNull()?.plus(1) ?: 1).toString()
             }
         } catch (e: Exception) {
             println("Error generating ID: ${e.message}")
             "[Error]: json reader"
         }
     }
-    //private var configuredDevicez: Map<String, Device> = emptyMap()
-
 
     override fun getDevice(deviceKey: String): Device? {
         return configuredDevices[deviceKey]
@@ -183,12 +213,6 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
         return configuredDevices.size
     }
 
-
-    /**
-     * Completely purges a targeted device configuration profile structure from the file storage state mapping matching the [idLabel].
-     *
-     * @param idLabel The specific target dictionary text ID requested for total structural deletion.
-     */
     override fun deleteById(idLabel: String) {
         if (!configFile.exists()) {
             println("Configuration file not found at: ${configFile.absolutePath}")
@@ -197,15 +221,23 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
 
         try {
             val jsonContent = configFile.readText()
-            val deviceMap: MutableMap<String, Device> = Json.decodeFromString(jsonContent)
+            val deviceMap: MutableMap<String, Device> = Json.decodeFromString<Map<String, Device>>(jsonContent).toMutableMap()
 
             if (deviceMap.containsKey(idLabel)) {
                 deviceMap.remove(idLabel)
+                println("DEBUG: [DELETE] Removed device with ID: $idLabel from local memory.")
 
                 val updatedJson = Json.encodeToString(deviceMap)
 
                 configFile.writeText(updatedJson)
+                configuredDevices = deviceMap
                 println("Successfully deleted device with ID: $idLabel")
+                
+                _deviceMapState.update {
+                    deviceMap.mapValues { (_, device) ->
+                        DeviceDto(device.name, device.port, device.deviceEndpoint)
+                    }
+                }
             } else {
                 println("Device ID '$idLabel' not found in configuration.")
             }
@@ -215,12 +247,6 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
         }
     }
 
-    /**
-     * Filters and collects atomic device parameters matching the given [labelRead] from all registered configurations.
-     *
-     * @param labelRead The configuration map structural variable key name to scrap (`"name"` or `"port"`).
-     * @return A compiled sequence tracking all matched property strings parsed from the dictionary pool.
-     */
     override fun parseConfig(labelRead: String): List<String> {
         if (!configFile.exists()) {
             println("Configuration file not found at: ${configFile.absolutePath}")
@@ -241,6 +267,7 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
                 when (labelRead) {
                     "name" -> output.add(device.name)
                     "port" -> output.add(device.port)
+                    "deviceEndpoint" -> output.add(device.deviceEndpoint ?: "")
                 }
             }
 
@@ -252,13 +279,6 @@ class DeviceManagerJson(private var configFile: File = File("/data/local/tmp/com
         }
     }
 
-    /**
-     * Isolates a unique device matching a specified ID, extracting a single parameter value string.
-     *
-     * @param labelRead The exact property column parameter token to isolate (`"name"`, `"port"`, or `"deviceEndpoint"`).
-     * @param targetId The distinct device identity index identifier key matching records on the storage system map.
-     * @return A list containing the specific isolated parameter data string, or standard exception error diagnostics.
-     */
     override fun parseConfigByTargetId(labelRead: String, targetId: String): List<String> {
         if (!configFile.exists()) {
             return listOf("cfgNf: ${configFile.absolutePath}")
