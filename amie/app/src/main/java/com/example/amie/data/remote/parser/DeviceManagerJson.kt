@@ -5,7 +5,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import java.io.File
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +18,10 @@ import com.example.amie.data.remote.DeviceActions
 import com.example.amie.data.remote.DeviceRemoteService
 import com.example.amie.util.sharedHttpClient
 import java.util.HashMap
+import kotlin.collections.emptyMap
+import kotlin.collections.mutableMapOf
+import kotlin.collections.listOf
+import kotlin.collections.mutableListOf
 
 /**
  * A dummy PostResponse to satisfy compilation if not defined elsewhere.
@@ -210,6 +213,18 @@ class DeviceManagerJson(
         } catch (e: Exception) {
             println("Error generating ID: ${e.message}")
             "[Error]: json reader"
+        }
+    }
+
+    fun getDevicePort(deviceName: String = ""): String? {
+        if(deviceName.isEmpty()) {
+            return "Parameter was expected"
+        } else {
+            return try {
+                configuredDevices[deviceName]?.port
+            } catch (e: Exception) {
+                "[Error]: json reader"
+            }
         }
     }
 

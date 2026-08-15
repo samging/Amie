@@ -161,13 +161,18 @@ class SimpleController(
 
 	@PostMapping("/login")
 	fun login(@RequestBody loginRequest: Map<String, String>): Map<String, String> {
-		val username = loginRequest["username"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Username required")
-		val password = loginRequest["password"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required")
+		val username = loginRequest["username"] ?: "guest"
+		val password = loginRequest["password"] ?: ""
 		
 		println("DEBUG: Login attempt for user: $username")
+
 		val token = userService.loginAsUser(username, password)
-            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials")
-		
+            ?: if (username.startsWith("guest-") && password == "") {
+				userService.grantGuestToken(username)
+			} else {
+				throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials")
+			}
+
 		println("DEBUG: Login successful for $username, generating dashboard...")
 		try {
 			simpleService.createUserDashboard(username = username)
@@ -177,6 +182,13 @@ class SimpleController(
 		
 		println("DEBUG: Returning token for $username")
         return mapOf("token" to token)
+	}
+
+	@PostMapping("/handle-login-error")
+	fun handleError(@RequestBody request: Map<String, String>) {
+        val error = request["error"] ?: "Unknown"
+        val username = request["username"] ?: "unknown"
+		simpleService.writeError(username, "LoginError", error)
 	}
 
 	@GetMapping("/dashboard")

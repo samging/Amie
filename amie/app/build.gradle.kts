@@ -56,8 +56,11 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.github.mik3y:usb-serial-for-android:3.9.0")
+    implementation("com.fazecast:jSerialComm:2.10.4")
     implementation("io.ktor:ktor-client-core:2.3.12")
     implementation("io.ktor:ktor-client-cio:2.3.12")
+    implementation("io.ktor:ktor-client-android:2.3.12")
+    implementation("io.ktor:ktor-client-logging:2.3.12")
     implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
 

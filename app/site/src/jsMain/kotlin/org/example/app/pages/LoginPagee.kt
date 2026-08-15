@@ -1,8 +1,8 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
+import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.browser.api
-import com.varabyte.kobweb.browser.http.bodyOf
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
@@ -19,6 +19,7 @@ import org.jetbrains.compose.web.dom.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+@NoLiveLiterals
 @Page("loginpage")
 @Composable
 fun LoginPagee() {

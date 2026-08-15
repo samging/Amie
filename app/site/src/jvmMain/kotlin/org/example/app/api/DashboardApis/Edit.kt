@@ -2,8 +2,7 @@ package org.example.app.api
 
 import com.varabyte.kobweb.api.Api
 import com.varabyte.kobweb.api.ApiContext
-import com.varabyte.kobweb.api.http.Body
-import com.varabyte.kobweb.api.http.text
+import com.varabyte.kobweb.api.http.setBodyText
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -12,7 +11,7 @@ import java.net.http.HttpResponse
 @Api
 suspend fun dashboarEdit(ctx: ApiContext) {
     try {
-        val requestBody = ctx.req.body?.text() ?: ""
+        val requestBody = ctx.req.body?.decodeToString() ?: ""
         
         val client = HttpClient.newHttpClient()
         val request = HttpRequest.newBuilder()
@@ -24,10 +23,10 @@ suspend fun dashboarEdit(ctx: ApiContext) {
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         
         ctx.res.status = response.statusCode()
-        ctx.res.body = Body.text(response.body())
+        ctx.res.setBodyText(response.body())
         
     } catch (e: Exception) {
         ctx.res.status = 500
-        ctx.res.body = Body.text("Internal Server Error: ${e.message}")
+        ctx.res.setBodyText("Internal Server Error: ${e.message}")
     }
 }

@@ -16,16 +16,15 @@ class WindowHeaderTest {
         composeRule.setContent {
             WindowHeader(
                 name = "Test",
-                endController = null,
                 onBack = { backClicked = true }
             )
         }
 
         // Verify back icon is displayed (found by its content description)
-        composeRule.onNodeWithContentDescription("Manage settings").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Go back").assertIsDisplayed()
 
         // Click back button
-        composeRule.onNodeWithContentDescription("Manage settings").performClick()
+        composeRule.onNodeWithContentDescription("Go back").performClick()
         assert(backClicked)
     }
 
@@ -34,14 +33,13 @@ class WindowHeaderTest {
         composeRule.setContent {
             WindowHeader(
                 name = "Test",
-                endController = null,
                 showOnBack = false,
                 onBack = {}
             )
         }
 
         // Verify back icon is NOT displayed
-        composeRule.onNodeWithContentDescription("Manage settings").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Go back").assertDoesNotExist()
     }
 
     @Test
@@ -50,7 +48,6 @@ class WindowHeaderTest {
         composeRule.setContent {
             WindowHeader(
                 name = "Test",
-                endController = null,
                 onBack = {},
                 addComponent = true,
                 addComponentNav = { addClicked = true }
@@ -70,7 +67,6 @@ class WindowHeaderTest {
         composeRule.setContent {
             WindowHeader(
                 name = "Test",
-                endController = null,
                 onBack = {}
             )
         }

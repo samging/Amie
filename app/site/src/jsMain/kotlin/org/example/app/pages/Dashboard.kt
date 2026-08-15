@@ -20,6 +20,10 @@ import org.jetbrains.compose.web.css.Color
 import org.jetbrains.compose.web.dom.*
 import kotlin.js.Json
 
+private const val DASHBOARD_URL = "http://localhost:8080/dashboard"
+private const val DELETE_PACKAGE_URL = "http://localhost:8081/api/delete-package"
+private const val NAVIGATE_TO_UPLOAD = "/navigateto?username="
+
 // Simple in-memory cache to prevent re-fetching on every navigation
 private object DashboardCache {
     var packageData: Map<String, List<Json>> = emptyMap()
@@ -32,6 +36,7 @@ private object DashboardCache {
     }
 }
 
+@NoLiveLiterals
 @Page("dashboard")
 @Composable
 fun Dashboard() {
@@ -56,7 +61,7 @@ fun Dashboard() {
                 val options = js("{}")
                 options["headers"] = headers
 
-                val response = window.fetch("http://localhost:8080/dashboard", options).await()
+                val response = window.fetch(DASHBOARD_URL, options).await()
                 if (response.ok) {
                     val text = response.text().await()
                     // Extract username from "Welcome to your dashboard, user (ID: 1)!"
@@ -76,8 +81,8 @@ fun Dashboard() {
                 isLoading = true
                 try {
                     // 1. Fetch Packages
-                    val pkgResponse = window.api.getBytes("repo-by-username?username=$username")
-                    val pkgText = pkgResponse.decodeToString()
+                    val pkgResponse = window.api.get("repo-by-username?username=$username")
+                    val pkgText = pkgResponse?.decodeToString() ?: ""
                     if (pkgText.isNotEmpty()) {
                         val json = JSON.parse<dynamic>(pkgText)
                         loadedPackages = if (js("Array.isArray(json)") as Boolean) (json as Array<Json>).toList() else listOf(json as Json)
@@ -85,8 +90,8 @@ fun Dashboard() {
                     }
 
                     // 2. Fetch Device Statuses
-                    val deviceResponse = window.api.getBytes("get-device-status?username=$username")
-                    val deviceText = deviceResponse.decodeToString()
+                    val deviceResponse = window.api.get("get-device-status?username=$username")
+                    val deviceText = deviceResponse?.decodeToString() ?: ""
                     if (deviceText.isNotEmpty()) {
                         val json = JSON.parse<dynamic>(deviceText)
                         deviceStatuses = if (js("Array.isArray(json)") as Boolean) (json as Array<Json>).toList() else emptyList()
@@ -199,7 +204,7 @@ fun Dashboard() {
                                                         try {
                                                             delResp = "Deleting $name..."
                                                             val token = window.localStorage.getItem("auth_token")
-                                                            val response = window.fetch("http://localhost:8081/api/delete-package?package=$path&username=$username&token=$token").await()
+                                                            val response = window.fetch("$DELETE_PACKAGE_URL?package=$path&username=$username&token=$token").await()
                                                             if (response.ok) {
                                                                 DashboardCache.clear(username)
                                                                 delResp = "Successfully deleted $name"
@@ -225,7 +230,7 @@ fun Dashboard() {
         
         Button(attrs = Modifier.margin(top = 20.px).toAttrs({
             onClick {
-                ctx.router.navigateTo("/navigateto?username=$username")
+                ctx.router.navigateTo("$NAVIGATE_TO_UPLOAD$username")
             }
         })) {
             Text("Upload New Package")

@@ -1,7 +1,12 @@
 package com.example.amie.components.render.templates
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -10,9 +15,13 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -38,6 +47,7 @@ import kotlin.collections.component2
 import kotlin.collections.iterator
 
 import androidx.compose.ui.tooling.preview.Preview
+import kotlinx.coroutines.launch
 
 /**
  * The primary centralized Navigation Graph engine for the application.
@@ -48,10 +58,11 @@ import androidx.compose.ui.tooling.preview.Preview
 @Composable
 fun AppNavigation() {
     var activePortsMap by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var currentUser by remember { mutableStateOf("") }
     val context = LocalContext.current
     val configFile = remember { File(context.filesDir, "componentSettings.json") }
     val configReader: DeviceManager = remember { DeviceManagerFactory.create(configFile) }
-
+    val scope = rememberCoroutineScope()
     val logFile = remember { File(context.filesDir, "logs.txt") }
     if (!logFile.exists()) {
         logFile.writeText("System initialized\nWaiting for logs...")
@@ -87,12 +98,28 @@ fun AppNavigation() {
     }
 
 
-    NavHost(navController = navController, startDestination = "home1/") {
+    NavHost(navController = navController, startDestination = "welcome-page") {
+        composable(route = "welcome-page") {
+            WelcomePage(
+                navController = navController
+            )
+        }
+
+        composable(route = "login") {
+            LoginPage(onLoginSuccess = { username ->
+                currentUser = username
+                navController.navigate("home1/") {
+                    popUpTo("login") { inclusive = true }
+                }
+            })
+        }
 
         composable(route = "home1/") {
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
                 WindowHeader(
-                    name = "Amie App", endController = 3,
+                    name = "Dashboard",
+                    showUser = true,
+                    user = currentUser,
                     onBack = { /*root should have no pop stack*/ },
                     showOnBack = false,
                     addComponent = true,
@@ -102,16 +129,18 @@ fun AppNavigation() {
 
                 val configMap = configReader.getDevices()
 
-                for ((idKey, dev) in configMap) {
-                    DevicePanel(
-                        name = dev.name,
-                        deviceEdnpoint = dev.deviceEndpoint ?: "",
-                        endPort = dev.port,
-                        onManage = { navController.navigate("manage/$idKey") },
-                        onConfigure = { navController.navigate("configure/$idKey") },
-                        onConnectPage = { navController.navigate("connect/$idKey") },
-                        onDisconnect = { navController.navigate("disconnect/$idKey") }
-                    )
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    for ((idKey, dev) in configMap) {
+                        DevicePanel(
+                            name = dev.name,
+                            deviceEdnpoint = dev.deviceEndpoint ?: "",
+                            endPort = dev.port,
+                            onManage = { navController.navigate("configure/$idKey") },
+                            onConfigure = { navController.navigate("manage/$idKey") },
+                            onConnectPage = { navController.navigate("connect/$idKey") },
+                            onDisconnect = { navController.navigate("disconnect/$idKey") }
+                        )
+                    }
                 }
             }
         }
@@ -119,61 +148,68 @@ fun AppNavigation() {
         composable(route = "addDevice/{idKey}") { backStackEntry ->
             val deviceId = backStackEntry.arguments?.getString("idKey") ?: ""
 
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
                 WindowHeader(
-                    name = "Amie App",
-                    endController = 3,
+                    name = "Add Device",
                     onBack = { navController.popBackStack() })
 
-                data class DeviceConnectionState(
-                    val name: String = "",
-                    val port: String = "",
-                    val deviceEndpoint: String = ""
-                )
+                Column(modifier = Modifier.padding(16.dp)) {
+                    data class DeviceConnectionState(
+                        val name: String = "",
+                        val port: String = "",
+                        val deviceEndpoint: String = ""
+                    )
 
-                var connectionState by remember { mutableStateOf(DeviceConnectionState()) }
+                    var connectionState by remember { mutableStateOf(DeviceConnectionState()) }
 
-                PeripheralPanel(
-                    name = "Device Name",
-                    valueOf = connectionState.name,
-                    hideButton = true,
-                    onValueChange = { connectionState = connectionState.copy(name = it)},
-                    deviceManager = configReader
-                )
+                    PeripheralPanel(
+                        name = "Device Name",
+                        valueOf = connectionState.name,
+                        hideButton = true,
+                        onValueChange = { connectionState = connectionState.copy(name = it)},
+                        deviceManager = configReader
+                    )
 
-                PeripheralPanel(
-                    name = "Device Port",
-                    valueOf = connectionState.port,
-                    hideButton = true,
-                    onValueChange = { connectionState = connectionState.copy(port = it) },
-                    deviceManager = configReader
-                )
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                PeripheralPanel(
-                    name = "Device Endpoint",
-                    valueOf = connectionState.deviceEndpoint,
-                    hideButton = true,
-                    onValueChange = { connectionState = connectionState.copy(deviceEndpoint = it) },
-                    deviceManager = configReader
-                )
+                    PeripheralPanel(
+                        name = "Device Port",
+                        valueOf = connectionState.port,
+                        hideButton = true,
+                        onValueChange = { connectionState = connectionState.copy(port = it) },
+                        deviceManager = configReader
+                    )
 
-                SystemCommit(
-                    indexDevice = configReader.generateAddId(),
-                    modifier = Modifier,
-                    keyValues = listOf("name", "port", "deviceEndpoint"),
-                    valuesOf = listOf(
-                        connectionState.name,
-                        connectionState.port,
-                        connectionState.deviceEndpoint
-                    ),
-                    deviceManager = configReader,
-                    redirectOnOk = {
-                        navController.previousBackStackEntry
-                            ?.savedStateHandle
-                            ?.set("need_refresh", true)
-                        navController.popBackStack()
-                    }
-                )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    PeripheralPanel(
+                        name = "Device Endpoint",
+                        valueOf = connectionState.deviceEndpoint,
+                        hideButton = true,
+                        onValueChange = { connectionState = connectionState.copy(deviceEndpoint = it) },
+                        deviceManager = configReader
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    SystemCommit(
+                        indexDevice = configReader.generateAddId(),
+                        modifier = Modifier.fillMaxWidth(),
+                        keyValues = listOf("name", "port", "deviceEndpoint"),
+                        valuesOf = listOf(
+                            connectionState.name,
+                            connectionState.port,
+                            connectionState.deviceEndpoint
+                        ),
+                        deviceManager = configReader,
+                        redirectOnOk = {
+                            navController.previousBackStackEntry
+                                ?.savedStateHandle
+                                ?.set("need_refresh", true)
+                            navController.popBackStack()
+                        }
+                    )
+                }
             }
         }
 
@@ -187,23 +223,22 @@ fun AppNavigation() {
             val currentDevice = configReader.getDevice(deviceId)
             val manageContent = remember { mutableStateListOf("ID: $deviceId", "Name: $currentDeviceName", "output") }
 
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
                 WindowHeader(
-                    name = "",
-                    endController = 3,
+                    name = "Manage Device",
                     onBack = { navController.popBackStack() }
                 )
 
                 ManageablePage(
                     name = currentDevice?.name ?: "Unknown Device",
-                    endController = 3,
+                    deviceId = deviceId,
 
                     deviceName = currentDevice?.name ?: "N/A",
                     portNumber = currentDevice?.port?.toIntOrNull() ?: 0,
                     endPoint = currentDevice?.deviceEndpoint?.toIntOrNull() ?: 0,
 
                     content = manageContent,
-                    configureEndpoint = { navController.navigate("scrollableEndpoint/$deviceId") },
+                    configureEndpoint = { navController.navigate("scrollableEndpoint/$deviceId/$currentUser") },
                     configurePort = { navController.navigate("scrollablePort/$deviceId") },
                     configureName = { navController.navigate("scrollableDevName/$deviceId") },
                     configurePlugins = { navController.navigate("scrollableNamePlugins/$deviceId") }
@@ -211,23 +246,37 @@ fun AppNavigation() {
             }
         }
 
-        composable(route = "scrollableEndpoint/{idKey}") { backStackEntry ->
+        composable(route = "scrollableEndpoint/{idKey}/{username}") { backStackEntry ->
             val deviceId = backStackEntry.arguments?.getString("idKey") ?: ""
+            val endpoint = backStackEntry.arguments?.getString("username") ?: ""
 
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
                 WindowHeader(
-                    name = "",
-                    endController = 3,
+                    name = "Endpoint",
                     onBack = { navController.popBackStack() }
                 )
                 val currentDevice = configReader.parseConfigByTargetId("deviceEndpoint",deviceId)
 
-                PeripheralPanel(name="Endpoint Device", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "deviceEndpoint", deviceManager = configReader)
-                Text(text="Current name: ${currentDevice.toString()}")
-                val getAllNames = configReader.parseConfig("deviceEndpoint")
-                val allNames: Map<Int, String> = getAllNames.withIndex().associate { it.index to it.value }
+                Column(modifier = Modifier.padding(16.dp)) {
+                    PeripheralPanel(
+                        name="Endpoint Device",
+                        modifier = Modifier,
+                        customText = "Set",
+                        writeId = deviceId,
+                        keyQuery = "deviceEndpoint",
+                        deviceManager = configReader,
+                        username = endpoint
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text="Current: ${endpoint}-${currentDevice}", color = Color(0xFF878e9c), fontSize = 12.sp)
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    val getAllNames = configReader.parseConfig("deviceEndpoint")
+                    val allNames: Map<Int, String> = getAllNames.withIndex().associate { it.index to it.value }
 
-                DataEntryList(name = "a", modifier = Modifier, activeFields = allNames)
+                    DataEntryList(name = "a", modifier = Modifier, activeFields = allNames)
+                }
             }
         }
 
@@ -248,12 +297,18 @@ fun AppNavigation() {
         composable(route = "scrollablePort/{idKey}") { backStackEntry ->
             val deviceId = backStackEntry.arguments?.getString("idKey") ?: ""
 
-            Column(modifier = Modifier.fillMaxSize()) {
-                WindowHeader(name = "Amie App", endController = 3,onBack = { navController.popBackStack() })
-                val currentPort = configReader.parseConfigByTargetId("port",deviceId)
-                PeripheralPanel(name="Serial Port", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "port", deviceManager = configReader)
-                Text(text="Current port: ${currentPort.toString()}")
-                DataEntryList(name = "a", modifier = Modifier, activeFields = activePortsMap, currentlyActive = listOf(0))
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
+                WindowHeader(name = "Serial Port", onBack = { navController.popBackStack() })
+                
+                Column(modifier = Modifier.padding(16.dp)) {
+                    val currentPort = configReader.parseConfigByTargetId("port",deviceId)
+                    PeripheralPanel(name="Serial Port", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "port", deviceManager = configReader)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text="Current port: ${currentPort}", color = Color(0xFF878e9c), fontSize = 12.sp)
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    DataEntryList(name = "a", modifier = Modifier, activeFields = activePortsMap, currentlyActive = listOf(0))
+                }
             }
         }
 
@@ -261,21 +316,23 @@ fun AppNavigation() {
         composable(route = "scrollableDevName/{idKey}") { backStackEntry ->
             val deviceId = backStackEntry.arguments?.getString("idKey") ?: ""
 
-            Column(modifier = Modifier.fillMaxSize()) {
-                WindowHeader(name = "Amie App", endController = 3,onBack = { navController.popBackStack() })
-                PeripheralPanel(name="Device Name", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "name", deviceManager = configReader)
-                val currentName = configReader.parseConfigByTargetId("name",deviceId)
-                Text(text="Current name: ${currentName.toString()}")
-                DataEntryList(name = "a", modifier = Modifier, activeFields = mapOf(1 to "Device 1", 2 to "Device 2", 3 to "Device 3"), currentlyActive = listOf(1,2,3))
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
+                WindowHeader(name = "Device Name", onBack = { navController.popBackStack() })
+                Column(modifier = Modifier.padding(16.dp)) {
+                    PeripheralPanel(name="Device Name", modifier = Modifier, customText = "Set", writeId = deviceId, keyQuery = "name", deviceManager = configReader)
+                }
             }
         }
         composable(route = "scrollableNamePlugins/{idKey}") { backStackEntry ->
             val deviceId = backStackEntry.arguments?.getString("idKey") ?: ""
 
-            Column(modifier = Modifier.fillMaxSize()) {
-                WindowHeader(name = "Amie App", endController = 3,onBack = { navController.popBackStack() })
-                RemotePackageConsole(name="Plugins", modifier = Modifier, customText = "Search")
-                IndexedSelectionList(name = "a", modifier = Modifier, activeFields = mapOf(1 to "package1.bin", 2 to "package2.bin", 3 to "package3.bin", 4 to "package4.bin"), currentlyActive = listOf(1,2,3))
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
+                WindowHeader(name = "Plugins", onBack = { navController.popBackStack() })
+                Column(modifier = Modifier.padding(16.dp)) {
+                    RemotePackageConsole(name="Plugins", modifier = Modifier, customText = "Search")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    IndexedSelectionList(name = "a", modifier = Modifier, activeFields = mapOf(1 to "package1.bin", 2 to "package2.bin", 3 to "package3.bin", 4 to "package4.bin"), currentlyActive = listOf(1,2,3))
+                }
             }
         }
 
@@ -284,14 +341,13 @@ fun AppNavigation() {
         ) { backStackEntry ->
             val deviceId = backStackEntry.arguments?.getString("deviceId") ?: ""
 
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
                 WindowHeader(
-                    name = "Android (ID: $deviceId)",
-                    endController = 3,
+                    name = "Configure (ID: $deviceId)",
                     onBack = { navController.popBackStack() }
                 )
                 ConfigurationPanel(
-                    name = "configure",
+                    deviceId = deviceId,
                     modifier = Modifier,
                     endPointNumber = 3,
                     allowCmd = true,
@@ -305,15 +361,14 @@ fun AppNavigation() {
         ) { backStackEntry ->
             val deviceId = backStackEntry.arguments?.getString("deviceId") ?: ""
 
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
                 WindowHeader(
-                    name = "Android (ID: $deviceId)",
-                    endController = 3,
+                    name = "Connect (ID: $deviceId)",
                     onBack = { navController.popBackStack() }
                 )
                 ConnectionPanel(
                     name = "android",
-                    endController = 20,
+                    deviceId = deviceId,
                     endPoint = 3,
                     status = true,
                     logFilePath = logFile.absolutePath,
@@ -323,9 +378,11 @@ fun AppNavigation() {
         }
 
         composable(route = "changeEndpoint/{deviceId}") { backStackEntry ->
-            Column(modifier = Modifier.fillMaxSize()) {
-                WindowHeader(name = "Amie App", endController = 3,onBack = { navController.popBackStack() })
-                PeripheralPanel(name="devices to toggle", modifier = Modifier, deviceManager = configReader)
+            Column(modifier = Modifier.fillMaxSize().background(Color(0xFF101319))) {
+                WindowHeader(name = "Select Endpoint", onBack = { navController.popBackStack() })
+                Column(modifier = Modifier.padding(16.dp)) {
+                    PeripheralPanel(name="devices to toggle", modifier = Modifier, deviceManager = configReader)
+                }
             }
         }
     }

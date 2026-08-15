@@ -15,16 +15,17 @@ import com.varabyte.kobweb.silk.init.registerStyleBase
 import com.varabyte.kobweb.silk.style.common.SmoothColorStyle
 import com.varabyte.kobweb.silk.style.toModifier
 import com.varabyte.kobweb.silk.theme.colors.ColorMode
-import com.varabyte.kobweb.silk.theme.colors.loadFromLocalStorage
-import com.varabyte.kobweb.silk.theme.colors.saveToLocalStorage
-import com.varabyte.kobweb.silk.theme.colors.systemPreference
+import kotlinx.browser.window
 import org.jetbrains.compose.web.css.vh
 
 private const val COLOR_MODE_KEY = "app:colorMode"
 
 @InitSilk
 fun initColorMode(ctx: InitSilkContext) {
-    ctx.config.initialColorMode = ColorMode.loadFromLocalStorage(COLOR_MODE_KEY) ?: ColorMode.systemPreference
+    val savedMode = window.localStorage.getItem(COLOR_MODE_KEY)?.let {
+        try { ColorMode.valueOf(it) } catch (e: Exception) { null }
+    }
+    ctx.config.initialColorMode = savedMode ?: ColorMode.LIGHT
 }
 
 @InitSilk
@@ -40,7 +41,7 @@ fun AppEntry(content: @Composable () -> Unit) {
     SilkApp {
         val colorMode = ColorMode.current
         LaunchedEffect(colorMode) {
-            colorMode.saveToLocalStorage(COLOR_MODE_KEY)
+            window.localStorage.setItem(COLOR_MODE_KEY, colorMode.name)
         }
         Surface(SmoothColorStyle.toModifier().minHeight(100.vh)) {
             content()

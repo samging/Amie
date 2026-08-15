@@ -3,75 +3,98 @@ package com.example.amie.components.terminal.window.controller
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
  * A connectivity dashboard row component designed to display specific endpoint connection paths,
  * network link health, and attach nested terminal telemetry feeds.
- *
- * @param name The unique application or section title string mapped to header tag the internal [TerminalWindow].
- * @param modifier The layout [Modifier] intended for extending customization configurations onto the root element (Currently unmapped).
- * @param endController An operational controller instance (Currently unused).
- * @param endPoint The active host or target network routing index address displayed dynamically in the upper row header.
- * @param status Monitors the current active network state indicator (e.g., `true` for connected, `false` for offline).
- * @param connectionRedirect Triggered immediately when the user clicks the settings gear icon to navigate or reconfigure connection properties.
  */
 @Composable
 fun ConnectionPanel(name: String,
+                    deviceId: String,
                     modifier: Modifier = Modifier,
-                    endController: Int?,
                     endPoint: Int? = null,
                     status: Boolean,
                     logFilePath: String = "/data/local/tmp/logs.txt",
                     connectionRedirect: () -> Unit) {
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxSize().background(Color(0xFF101319)).padding(16.dp)) {
+        Text(
+            text = "Device Connection",
+            color = Color(0xFFc7cbd4),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
 
-        Row(modifier = Modifier.background(color = Color.White).fillMaxWidth().border(width = 1.dp, color = Color.Gray),
-            verticalAlignment = Alignment.CenterVertically)
-        {
+        // Configuration Rows
+        val rowModifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(color = Color(0xFF171b23))
+            .border(width = 1.dp, color = Color(0xFF262b36), shape = RoundedCornerShape(8.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
 
-            Text("Endpoint: $endPoint", fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
+        Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
+            Text("Endpoint: $endPoint", color = Color(0xFFc7cbd4), fontSize = 16.sp)
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(
-                onClick = { connectionRedirect() },
-                modifier = Modifier.width(30.dp)
-            ) {
+            IconButton(onClick = { connectionRedirect() }) {
                 Icon(
                     imageVector = Icons.Default.Settings,
-                    contentDescription = "Manage settings"
+                    contentDescription = "Manage settings",
+                    tint = Color(0xFF878e9c)
                 )
             }
         }
 
-        Row(modifier = Modifier.background(color = Color.White).fillMaxWidth().border(width = 1.dp, color = Color.Gray), verticalAlignment = Alignment.CenterVertically) {
-            Text("Status: $status", fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
+        Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
+            Text("Status: ${if (status) "Connected" else "Disconnected"}", 
+                 color = Color(0xFFc7cbd4), 
+                 fontSize = 16.sp,
+                 fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.weight(1f))
             Button(
                 onClick = { },
-                modifier = Modifier.width(150.dp)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF262b36),
+                    contentColor = Color(0xFFc7cbd4)
+                ),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text("Disconnect")
+                Text(if (status) "Disconnect" else "Connect", fontWeight = FontWeight.Medium)
             }
         }
 
-        TerminalWindow(title = name, modifier = Modifier, logFilePath = logFilePath)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).border(1.dp, Color(0xFF262b36), RoundedCornerShape(8.dp))) {
+            TerminalWindow(title = name, deviceId = deviceId, modifier = Modifier, logFilePath = logFilePath)
+        }
     }
 }

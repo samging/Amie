@@ -2,8 +2,7 @@ package org.example.app.api
 
 import com.varabyte.kobweb.api.Api
 import com.varabyte.kobweb.api.ApiContext
-import com.varabyte.kobweb.api.http.Body
-import com.varabyte.kobweb.api.http.text
+import com.varabyte.kobweb.api.http.setBodyText
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -22,7 +21,7 @@ suspend fun viewPackage(ctx: ApiContext) {
     
     if (path.isEmpty() || username.isEmpty()) {
         ctx.res.status = 400
-        ctx.res.body = Body.text("Missing path or username")
+        ctx.res.setBodyText("Missing path or username")
         return
     }
 
@@ -73,13 +72,15 @@ suspend fun viewPackage(ctx: ApiContext) {
             }
             
             ctx.res.status = 200
-            ctx.res.body = Body.text(JsonObject(mutableJson).toString(), contentType = "application/json")
+            ctx.res.setBodyText(JsonObject(mutableJson).toString())
+            ctx.res.contentType = "application/json"
         } else {
             ctx.res.status = response.statusCode()
-            ctx.res.body = Body.text(response.body(), contentType = "application/json")
+            ctx.res.setBodyText(response.body())
+            ctx.res.contentType = "application/json"
         }
     } catch (e: Exception) {
         ctx.res.status = 500
-        ctx.res.body = Body.text("View Metadata Error: ${e.message}")
+        ctx.res.setBodyText("View Metadata Error: ${e.message}")
     }
 }

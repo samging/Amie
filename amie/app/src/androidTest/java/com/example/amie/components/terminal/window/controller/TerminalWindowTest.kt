@@ -15,7 +15,7 @@ class TerminalWindowTest {
     fun terminalWindow_rendersTitleCorrectly() {
         val testTitle = "System Logs"
         composeRule.setContent {
-            TerminalWindow(title = testTitle)
+            TerminalWindow(title = testTitle, deviceId = "test-device-id")
         }
 
         // Verify the title is displayed with the prefix
@@ -25,7 +25,7 @@ class TerminalWindowTest {
     @Test
     fun terminalWindow_showsCommandInputWhenAllowed() {
         composeRule.setContent {
-            TerminalWindow(title = "Test", allowCmd = true)
+            TerminalWindow(title = "Test", deviceId = "test-device-id", allowCmd = true)
         }
 
         // Verify the text field label exists
@@ -35,7 +35,7 @@ class TerminalWindowTest {
     @Test
     fun terminalWindow_hidesCommandInputWhenNotAllowed() {
         composeRule.setContent {
-            TerminalWindow(title = "Test", allowCmd = false)
+            TerminalWindow(title = "Test", deviceId = "test-device-id", allowCmd = false)
         }
 
         // Verify the text field does not exist
@@ -45,7 +45,7 @@ class TerminalWindowTest {
     @Test
     fun terminalWindow_sendIconAppearsOnlyWhenTextEntered() {
         composeRule.setContent {
-            TerminalWindow(title = "Test", allowCmd = true)
+            TerminalWindow(title = "Test", deviceId = "test-device-id", allowCmd = true)
         }
 
         // Initially, the send icon shouldn't be visible because input is empty
@@ -68,7 +68,7 @@ class TerminalWindowTest {
     fun terminalWindow_addsLogOnButtonClick() {
         val testLogs = mutableStateListOf<String>()
         composeRule.setContent {
-            TerminalWindow(title = "Test", content = testLogs)
+            TerminalWindow(title = "Test", deviceId = "test-device-id", content = testLogs)
         }
 
         // Find the button (it's the only one with a click action at the bottom)

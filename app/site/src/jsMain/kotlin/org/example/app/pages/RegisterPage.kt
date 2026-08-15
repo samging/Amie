@@ -1,8 +1,7 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
-import com.varabyte.kobweb.browser.api
-import com.varabyte.kobweb.browser.http.bodyOf
+import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.compose.foundation.layout.Box
 import com.varabyte.kobweb.compose.foundation.layout.Column
 import com.varabyte.kobweb.compose.ui.Alignment
@@ -18,6 +17,7 @@ import com.varabyte.kobweb.silk.components.text.SpanText
 import com.varabyte.kobweb.silk.style.toModifier
 import kotlinx.browser.window
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.await
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.placeholder
 import org.jetbrains.compose.web.attributes.value
@@ -26,6 +26,7 @@ import org.jetbrains.compose.web.dom.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+@NoLiveLiterals
 @Page("register")
 @Composable
 fun RegisterPage() {
@@ -82,13 +83,17 @@ fun RegisterPage() {
                         val requestBody = Json.encodeToString(mapOf("username" to name, "password" to password))
 
                         try {
-                            val response = window.api.post("register", bodyOf(requestBody))
+                            val options = js("{}")
+                            options["method"] = "POST"
+                            options["body"] = requestBody
+                            options["headers"] = js("{ 'Content-Type': 'application/json' }")
+
+                            val response = window.fetch("/api/register", options).await()
                             when (response.status.toInt()) {
                                 200 -> {
                                     ctx.router.navigateTo("/loginpage")
                                 }
                                 409 -> {
-                                    // Manually getting text since bodyText() might be tricky with imports
                                     errorMessage = "Username is already assigned to different account"
                                 }
                                 else -> {

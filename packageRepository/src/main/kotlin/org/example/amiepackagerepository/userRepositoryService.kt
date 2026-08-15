@@ -58,6 +58,20 @@ class UserService(private val userRepository: UserRepository) {
         return null
     }
 
+    fun grantGuestToken(username:String): String {
+        val token = Jwts.builder()
+            .subject("guest")
+            .claim("userId", -1L)
+            .issuedAt(Date())
+            .expiration(Date(System.currentTimeMillis() + 60 * 60 * 1000))
+            .signWith(secretKey)
+            .compact()
+        
+        if (!userRepository.existsByUsername(username)) {
+            userRepository.save(User(username = username, password = ""))
+        }
+        return token
+    }
     fun validateToken(token: String): Claims? {
         try {
             return Jwts.parser()

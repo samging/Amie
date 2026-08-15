@@ -15,7 +15,7 @@ class ConfigurationPanelTest {
         val endpoint = 42
         composeRule.setContent {
             ConfigurationPanel(
-                name = "TestPanel",
+                deviceId = "test-device-id",
                 endPointNumber = endpoint
             )
         }
@@ -28,7 +28,7 @@ class ConfigurationPanelTest {
     fun configurationPanel_rendersWithEmptyTitleWhenNoEndpoint() {
         composeRule.setContent {
             ConfigurationPanel(
-                name = "TestPanel",
+                deviceId = "test-device-id",
                 endPointNumber = null
             )
         }
@@ -42,7 +42,7 @@ class ConfigurationPanelTest {
     fun configurationPanel_forwardsAllowCmdToTerminalWindow() {
         composeRule.setContent {
             ConfigurationPanel(
-                name = "TestPanel",
+                deviceId = "test-device-id",
                 allowCmd = true
             )
         }
@@ -55,7 +55,7 @@ class ConfigurationPanelTest {
     fun configurationPanel_hidesCommandInputWhenAllowCmdIsFalse() {
         composeRule.setContent {
             ConfigurationPanel(
-                name = "TestPanel",
+                deviceId = "test-device-id",
                 allowCmd = false
             )
         }

@@ -1,35 +1,27 @@
 pluginManagement {
     repositories {
-        google {
-            content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
-                includeGroupByRegex("androidx.*")
-            }
-        }
+        google()
         mavenCentral()
         gradlePluginPortal()
+        maven("https://us-central1-maven.pkg.dev/varabyte-repos/public")
     }
+}
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
     repositories {
         google()
         mavenCentral()
-        maven(url = "https://jitpack.io")
+        maven("https://jitpack.io")
+        maven("https://us-central1-maven.pkg.dev/varabyte-repos/public")
     }
 }
 
 rootProject.name = "Amie"
 
-// Include the Android module as ':app' (Standard name)
-include(":app")
-project(":app").projectDir = file("amie/app")
-
-// Include other projects as independent builds
-// Rename the 'app' included build to avoid name clash with the Android module
-includeBuild("app") {
-    name = "kobweb-site"
-}
+includeBuild("amie")
+includeBuild("app")
 includeBuild("packageRepository")

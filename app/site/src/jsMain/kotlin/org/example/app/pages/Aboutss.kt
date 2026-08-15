@@ -1,6 +1,7 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
+import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.browser.api
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
@@ -20,11 +21,16 @@ import org.jetbrains.compose.web.css.Color
 import org.jetbrains.compose.web.dom.*
 import kotlin.js.Json
 
+private const val DASHBOARD_URL = "http://localhost:8080/dashboard"
+private const val LIST_GITHUB_URL = "http://localhost:8080/list-github"
+private const val QUERY_URL = "http://localhost:8080/query?query="
+
 // In-memory cache for Explorer data
 private object ExplorerCache {
     var packages: List<Json>? = null
 }
 
+@NoLiveLiterals
 @Page
 @Composable
 fun AboutPaged() {
@@ -47,7 +53,7 @@ fun AboutPaged() {
                 val options = js("{}")
                 options["headers"] = headers
                 
-                val response = window.fetch("http://localhost:8080/dashboard", options).await()
+                val response = window.fetch(DASHBOARD_URL, options).await()
                 if (response.ok) {
                     val text = response.text().await()
                     loggedInUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
@@ -62,7 +68,7 @@ fun AboutPaged() {
                 loadedPackages = ExplorerCache.packages!!
                 println("DEBUG: Loaded Explorer from cache")
             } else {
-                val response = window.fetch("http://localhost:8080/list-github").await()
+                val response = window.fetch(LIST_GITHUB_URL).await()
                 if (response.ok) {
                     val json = response.json().await().unsafeCast<Array<Json>>()
                     loadedPackages = json.toList()
@@ -115,7 +121,7 @@ fun AboutPaged() {
                             isLoading = true
                             try {
                                 val encodedText = js("encodeURIComponent")(text) as String
-                                val response = window.fetch("http://localhost:8080/query?query=$encodedText").await()
+                                val response = window.fetch("$QUERY_URL$encodedText").await()
                                 if (response.ok) {
                                     val json = response.json().await()
                                     
@@ -234,7 +240,7 @@ fun AboutPaged() {
                                                 onClick {
                                                     scope.launch {
                                                         try {
-                                                            window.api.getBytes("delete-package?package=$path&username=$owner")
+                                                            window.api.get("delete-package?package=$path&username=$owner")
                                                             ExplorerCache.packages = null // Invalidate cache
                                                             window.location.reload()
                                                         } catch(e: Exception) {

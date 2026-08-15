@@ -19,7 +19,7 @@ class ConnectionPanelTest {
         composeRule.setContent {
             ConnectionPanel(
                 name = testName,
-                endController = 1,
+                deviceId = "test-device-id",
                 endPoint = testEndpoint,
                 status = testStatus,
                 connectionRedirect = {}
@@ -46,7 +46,7 @@ class ConnectionPanelTest {
         composeRule.setContent {
             ConnectionPanel(
                 name = "Test",
-                endController = null,
+                deviceId = "test-device-id",
                 status = false,
                 connectionRedirect = { wasRedirectCalled = true }
             )
@@ -64,7 +64,7 @@ class ConnectionPanelTest {
         composeRule.setContent {
             ConnectionPanel(
                 name = "Test",
-                endController = null,
+                deviceId = "test-device-id",
                 endPoint = null,
                 status = false,
                 connectionRedirect = {}

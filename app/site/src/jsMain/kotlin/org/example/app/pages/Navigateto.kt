@@ -1,6 +1,7 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
+import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.compose.foundation.layout.Box
 import com.varabyte.kobweb.compose.ui.Alignment
 import com.varabyte.kobweb.compose.ui.Modifier
@@ -24,6 +25,7 @@ import org.w3c.files.File
 import org.w3c.files.get
 import org.w3c.xhr.FormData
 
+@NoLiveLiterals
 @Page
 @Composable
 fun Navigateto() {

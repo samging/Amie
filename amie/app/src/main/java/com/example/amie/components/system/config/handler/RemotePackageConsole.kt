@@ -1,6 +1,5 @@
 package com.example.amie.components.system.config.handler
 
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,8 +13,10 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,25 +24,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.amie.util.fetchFilesList
-import androidx.compose.runtime.LaunchedEffect
+
 /**
  * A search and management interface component used for querying remote packages, validating
  * dependencies, and displaying local connection/error states.
- *
- * @param name A descriptive identifier or label (Currently unused in layout).
- * @param modifier The [Modifier] to be applied to the root [Column] layout container.
- * @param customText The custom label text for an action (Defaults to "Connect"; currently unused).
  */
 @Composable
 fun RemotePackageConsole(name: String, modifier: Modifier = Modifier, customText: String = "Connect") {
-    val dummyDevices = listOf("dev1", "dev2", "dev3")
-
     var buffer by remember { mutableStateOf("") }
     var selectedDevice by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf("") }
-    var packages by remember { mutableStateOf<String>("") }
+    var packages by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
@@ -50,24 +48,37 @@ fun RemotePackageConsole(name: String, modifier: Modifier = Modifier, customText
     }
 
     Column(modifier = modifier.padding(16.dp)) {
-        Text(text = "Search for package:")
+        Text(
+            text = "Search for package:",
+            color = Color(0xFF878e9c),
+            fontSize = 14.sp,
+            fontFamily = FontFamily.SansSerif
+        )
         Spacer(modifier = Modifier.height(8.dp))
 
-        var searchResult by remember { mutableStateOf<Boolean?>(null)}
-        val packageNames: List<String> = listOf("package1", "package2", "package3","package4")
+        var searchResult by remember { mutableStateOf<Boolean?>(null) }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
                 value = buffer,
-                onValueChange = { line -> buffer = line },
-                label = { Text("Dependency Name") },
-                modifier = Modifier.weight(1f)
+                onValueChange = { buffer = it },
+                label = { Text("Dependency Name", color = Color(0xFF878e9c)) },
+                modifier = Modifier.weight(1f),
+                textStyle = TextStyle(color = Color(0xFFc7cbd4)),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color(0xFFc7cbd4),
+                    unfocusedTextColor = Color(0xFFc7cbd4).copy(alpha = 0.7f),
+                    focusedContainerColor = Color(0xFF171b23),
+                    unfocusedContainerColor = Color(0xFF171b23),
+                    cursorColor = Color(0xFFc7cbd4),
+                    focusedBorderColor = Color(0xFF262b36),
+                    unfocusedBorderColor = Color(0xFF262b36).copy(alpha = 0.5f)
+                )
             )
-
 
             IconButton(
                 onClick = { searchResult = buffer in packages },
@@ -77,29 +88,47 @@ fun RemotePackageConsole(name: String, modifier: Modifier = Modifier, customText
             ) {
                 Icon(
                     imageVector = Icons.Default.Search,
-                    contentDescription = "Search packages"
+                    contentDescription = "Search packages",
+                    tint = Color(0xFFc7cbd4)
                 )
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        when(searchResult) {
-            true -> Text(text = "Adding package", color = Color(0xFF4CAF50))
-            false -> Text(text = "Package not found", color = Color.Red)
+        when (searchResult) {
+            true -> Text(text = "Adding package", color = Color(0xFFc7cbd4), fontSize = 13.sp)
+            false -> Text(text = "Package not found", color = Color(0xFF878e9c), fontSize = 13.sp)
             null -> {}
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         if (isLoading) {
-            Text("Loading packages from server...")
+            Text(
+                "Loading packages from server...",
+                color = Color(0xFF878e9c),
+                fontSize = 13.sp
+            )
         } else {
-            Text(text = packages)
+            Text(
+                text = packages,
+                color = Color(0xFFc7cbd4),
+                fontSize = 13.sp,
+                fontFamily = FontFamily.Monospace
+            )
         }
 
         if (selectedDevice != null) {
-            Text(text = "Connected safely to: $selectedDevice", color = Color(0xFF4CAF50))
+            Text(
+                text = "Connected safely to: $selectedDevice",
+                color = Color(0xFFc7cbd4),
+                fontSize = 13.sp
+            )
         } else if (errorMessage.isNotEmpty()) {
-            Text(text = errorMessage, color = Color.Red)
+            Text(
+                text = errorMessage,
+                color = Color(0xFF878e9c),
+                fontSize = 13.sp
+            )
         }
     }
 }

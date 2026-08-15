@@ -2,8 +2,7 @@ package org.example.app.api
 
 import com.varabyte.kobweb.api.Api
 import com.varabyte.kobweb.api.ApiContext
-import com.varabyte.kobweb.api.http.Body
-import com.varabyte.kobweb.api.http.text
+import com.varabyte.kobweb.api.http.setBodyText
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -31,12 +30,13 @@ suspend fun listGithub(ctx: ApiContext) {
         val response = client.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString())
         ctx.res.status = response.statusCode()
         if (response.statusCode() == 200) {
-            ctx.res.body = Body.text(response.body(), contentType = "application/json")
+            ctx.res.setBodyText(response.body())
+            ctx.res.contentType = "application/json"
         } else {
-            ctx.res.body = Body.text("GitHub API error: ${response.body()}")
+            ctx.res.setBodyText("GitHub API error: ${response.body()}")
         }
     } catch (e: Exception) {
         ctx.res.status = 500
-        ctx.res.body = Body.text("Internal Server Error: ${e.message}")
+        ctx.res.setBodyText("Internal Server Error: ${e.message}")
     }
 }

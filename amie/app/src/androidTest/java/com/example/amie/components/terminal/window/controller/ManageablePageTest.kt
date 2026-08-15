@@ -24,7 +24,7 @@ class ManageablePageTest {
         composeRule.setContent {
             ManageablePage(
                 name = testName,
-                endController = 1,
+                deviceId = "test-device-id",
                 endPoint = testEndpoint,
                 portNumber = testPort,
                 deviceName = testDevice,
@@ -59,7 +59,7 @@ class ManageablePageTest {
         composeRule.setContent {
             ManageablePage(
                 name = "Test",
-                endController = 1,
+                deviceId = "test-device-id",
                 content = remember { mutableStateListOf<String>() },
                 configureEndpoint = { endpointCalled = true },
                 configurePort = { portCalled = true },

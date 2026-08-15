@@ -1,6 +1,7 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
+import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.browser.api
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
@@ -16,6 +17,7 @@ import com.varabyte.kobweb.compose.css.Overflow
 import com.varabyte.kobweb.compose.ui.graphics.Color
 import com.varabyte.kobweb.compose.ui.graphics.Colors
 
+@NoLiveLiterals
 @Page("view")
 @Composable
 fun ViewPage() {

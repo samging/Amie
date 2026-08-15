@@ -4,12 +4,39 @@
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
+        <compositeConfiguration>
+          <compositeBuild compositeDefinitionSource="SCRIPT">
+            <builds>
+              <build path="$PROJECT_DIR$/amie" name="amie">
+                <projects>
+                  <project path="$PROJECT_DIR$/amie" />
+                  <project path="$PROJECT_DIR$/amie/app" />
+                </projects>
+              </build>
+              <build path="$PROJECT_DIR$/app" name="app">
+                <projects>
+                  <project path="$PROJECT_DIR$/app" />
+                  <project path="$PROJECT_DIR$/app/site" />
+                </projects>
+              </build>
+              <build path="$PROJECT_DIR$/packageRepository" name="amiePackageRepository">
+                <projects>
+                  <project path="$PROJECT_DIR$/packageRepository" />
+                </projects>
+              </build>
+            </builds>
+          </compositeBuild>
+        </compositeConfiguration>
         <option name="testRunner" value="CHOOSE_PER_TEST" />
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
-        <option name="gradleJvm" value="jbr-21" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/amie" />
+            <option value="$PROJECT_DIR$/amie/app" />
+            <option value="$PROJECT_DIR$/app" />
+            <option value="$PROJECT_DIR$/app/site" />
+            <option value="$PROJECT_DIR$/packageRepository" />
           </set>
         </option>
       </GradleProjectSettings>

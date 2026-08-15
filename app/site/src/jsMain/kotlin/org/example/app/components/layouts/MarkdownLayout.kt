@@ -4,17 +4,13 @@ import androidx.compose.runtime.Composable
 import com.varabyte.kobweb.compose.css.FontWeight
 import com.varabyte.kobweb.compose.css.Overflow
 import com.varabyte.kobweb.compose.css.OverflowWrap
+import com.varabyte.kobweb.compose.foundation.layout.ColumnScope
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
-import com.varabyte.kobweb.core.data.add
-import com.varabyte.kobweb.core.init.InitRoute
-import com.varabyte.kobweb.core.init.InitRouteContext
-import com.varabyte.kobweb.core.layout.Layout
 import com.varabyte.kobweb.silk.style.CssStyle
 import com.varabyte.kobweb.silk.style.toAttrs
 import com.varabyte.kobweb.silk.theme.colors.palette.color
 import com.varabyte.kobweb.silk.theme.colors.palette.toPalette
-import com.varabyte.kobwebx.markdown.markdown
 import org.jetbrains.compose.web.css.DisplayStyle
 import org.jetbrains.compose.web.css.LineStyle
 import org.jetbrains.compose.web.css.cssRem
@@ -30,7 +26,7 @@ val MarkdownStyle = CssStyle {
             .fontSize(3.cssRem)
             .fontWeight(400)
             .margin(bottom = 2.5.cssRem)
-            .lineHeight(1.2) //1.5x doesn't look as good on very large text
+            .lineHeight(1.2)
     }
 
     cssRule("h2") {
@@ -86,18 +82,11 @@ val MarkdownStyle = CssStyle {
     }
 }
 
-@InitRoute
-fun initMarkdownLayout(ctx: InitRouteContext) {
-    val title = ctx.markdown!!.frontMatter["title"]?.singleOrNull()
-    require(title != null) { "Markdown file must set \"title\" in frontmatter" }
-
-    ctx.data.add(PageLayoutData(title))
-}
-
 @Composable
-@Layout(".components.layouts.PageLayout")
 fun MarkdownLayout(content: @Composable () -> Unit) {
-    Div(MarkdownStyle.toAttrs()) {
-        content()
+    PageLayout("About") {
+        Div(MarkdownStyle.toAttrs()) {
+            content()
+        }
     }
 }

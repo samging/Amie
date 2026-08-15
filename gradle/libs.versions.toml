@@ -10,11 +10,12 @@ testRules = "1.7.0"
 testMonitor = "1.8.0"
 lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
-kotlin = "2.2.10"
+kotlin = "2.0.21"
 composeBom = "2026.02.01"
 navigationCompose = "2.8.9"
 kotlinx-serialization = "1.6.3"
 uiTestJunit4 = "1.11.4"
+kobweb = "0.19.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -39,7 +40,19 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4", version.ref = "uiTestJunit4" }
 
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version = "1.7.0" }
+compose-html-core = { module = "org.jetbrains.compose.html:html-core", version = "1.7.0" }
+kobweb-core = { module = "com.varabyte.kobweb:kobweb-core", version.ref = "kobweb" }
+kobweb-silk = { module = "com.varabyte.kobweb:kobweb-silk", version.ref = "kobweb" }
+kobweb-api = { module = "com.varabyte.kobweb:kobweb-api", version.ref = "kobweb" }
+kobwebx-markdown = { module = "com.varabyte.kobwebx:kobwebx-markdown", version.ref = "kobweb" }
+kobwebx-serialization-kotlinx = { module = "com.varabyte.kobwebx:kobwebx-serialization-kotlinx", version.ref = "kobweb" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kobweb-application = { id = "com.varabyte.kobweb.application", version.ref = "kobweb" }
+kobwebx-markdown = { id = "com.varabyte.kobwebx.markdown", version.ref = "kobweb" }

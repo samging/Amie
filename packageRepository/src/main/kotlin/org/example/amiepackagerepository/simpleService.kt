@@ -9,12 +9,17 @@ import org.springframework.web.multipart.MultipartFile
 import org.springframework.web.client.RestClient
 import org.springframework.core.ParameterizedTypeReference
 import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.io.IOException
+import java.io.FileNotFoundException
 import java.net.URLEncoder
+import java.net.http.HttpClient
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
+import com.fasterxml.jackson.annotation.JsonProperty
 
 /**
  * Common interface for items retrieved from different repository types.
@@ -42,8 +47,8 @@ data class GoogleDriveItem(
  * Internal DTO for GitHub API response items.
  */
 data class GithubSearchResponse(
-	val total_count: Int,
-	val incomplete_results: Boolean,
+	@JsonProperty("total_count") val totalCount: Int,
+	@JsonProperty("incomplete_results") val incompleteResults: Boolean,
 	val items: List<GithubSearchItem>
 )
 
@@ -53,8 +58,8 @@ data class GithubContentResponse(
 	val sha: String,
 	val size: Long,
 	val url: String,
-	val html_url: String,
-	val download_url: String?,
+	@JsonProperty("html_url") val htmlUrl: String,
+	@JsonProperty("download_url") val downloadUrl: String?,
 	val type: String,
 	val content: String? = null,
 	val encoding: String? = null
@@ -64,7 +69,7 @@ data class GithubSearchItem(
 	val name: String,
 	val path: String,
 	val sha: String,
-	val html_url: String
+	@JsonProperty("html_url") val htmlUrl: String
 )
 
 data class CreateRepoRequest(
@@ -78,7 +83,8 @@ data class CreateRepoRequest(
  * personal and shared Google Drives, and now GitHub.
  */
 @Service
-open class SimpleService {
+@Suppress("NewApi")
+class SimpleService {
 
 	private val restClient = RestClient.builder()
 		.requestFactory(org.springframework.http.client.SimpleClientHttpRequestFactory().apply {
@@ -110,18 +116,18 @@ open class SimpleService {
 				.retrieve()
 				.onStatus({ it.value() == 404 }, { _, _ -> 
 					// Handle 404 as empty directory
-					throw java.io.FileNotFoundException("Directory not found (likely empty)")
+					throw IOException("Directory not found (likely empty)")
 				})
 				.body(object : ParameterizedTypeReference<List<GithubContentResponse>>() {})
 
 			response?.map {
 				GithubItem(
 					name = it.name,
-					downloadUrl = it.download_url ?: "",
+					downloadUrl = it.downloadUrl ?: "",
 					type = it.type
 				)
 			} ?: emptyList()
-		} catch (e: java.io.FileNotFoundException) {
+		} catch (e: FileNotFoundException) {
 			println("GitHub: Path '$path' not found. This usually means the folder is empty.")
 			emptyList()
 		} catch (e: Exception) {
@@ -206,8 +212,8 @@ open class SimpleService {
 
 			val fileInfo = responseEntity.body
 			if (fileInfo != null) {
-				println("File found: ${fileInfo.path} -> ${fileInfo.html_url}")
-				println("Download URL: ${fileInfo.download_url}")
+				println("File found: ${fileInfo.path} -> ${fileInfo.htmlUrl}")
+				println("Download URL: ${fileInfo.downloadUrl}")
 			}
 
 			when (responseEntity.statusCode.value()) {
@@ -281,7 +287,6 @@ open class SimpleService {
 				// 404 is expected here for new users
 			}
 
-			// 2. Create the file if it didn't exist
 			val contentBase64 = Base64.getEncoder().encodeToString("# Dashboard for $username".toByteArray())
 			val body = mapOf(
 				"message" to "Create dashboard for $username",
@@ -326,13 +331,13 @@ open class SimpleService {
 
 		val files = result.files
 		if (files.isNullOrEmpty()) {
-			throw java.io.IOException("File not found on Google Drive: $fileName")
+			throw IOException("File not found on Google Drive: $fileName")
 		}
 		val fileId = files[0].id
 
-		java.io.FileOutputStream(savePath).use { outputStream ->
+		FileOutputStream(savePath).use { stream ->
 			driveService.files().get(fileId)
-				.executeAndDownloadTo(outputStream)
+				.executeAndDownloadTo(stream)
 		}
 		outputStream.close()
 	}
@@ -369,7 +374,7 @@ open class SimpleService {
 			existingSha = checkResponse?.sha
 			println("DEBUG: File exists on GitHub, updating with SHA: $existingSha")
 		} catch (e: Exception) {
-			println("DEBUG: File does not exist at $path, creating new one.")
+			println("GitHub: File does not exist at $path, creating new one.")
 		}
 
 		val body = mutableMapOf(
@@ -396,6 +401,45 @@ open class SimpleService {
 			println("CRITICAL: GitHub API Error at path $path: ${e.message}")
 			throw e
 		}
+	}
+	private fun fetchFileSha(url: String, githubToken: String?): String? {
+		return try {
+			val res = restClient.get().uri(url)
+				.header("Authorization", "Bearer $githubToken")
+				.header("Accept", "application/vnd.github+json")
+				.retrieve()
+				.body(Map::class.java)
+			res?.get("sha") as? String
+		} catch(e: Exception) {
+			null
+		}
+	}
+
+	fun writeError(username: String, error: String, message: String) {
+		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
+		val repoOwner = "samging"
+		val repoName = "codeRepository"
+		val path = "uploads/$username/errors.md"
+		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+		val contentBase64 = Base64.getEncoder().encodeToString("[$error]: $message".toByteArray())
+		val existingSha = fetchFileSha(url, githubToken)
+
+		val body = mutableMapOf(
+			"message" to "Update $path via Amie Repository for $username",
+			"content" to contentBase64
+		).apply {
+			if (existingSha != null) {
+				put("sha", existingSha)
+			}
+		}
+
+		restClient.put()
+			.uri(url)
+			.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
+			.contentType(MediaType.APPLICATION_JSON)
+			.body(body)
+			.retrieve()
+			.toBodilessEntity()
 	}
 
 	fun sendEdit(username: String, fileName: String, updateFile: MultipartFile) {

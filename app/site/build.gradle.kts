@@ -20,6 +20,11 @@ kobweb {
 }
 
 kotlin {
+    js {
+        compilerOptions {
+            freeCompilerArgs.add("-P=plugin:androidx.compose.compiler.plugins.kotlin:liveLiterals=false")
+        }
+    }
     // Enable the server target here:
     configAsKobwebApplication("app", includeServer = true)
 
@@ -35,6 +40,7 @@ kotlin {
 
         // Uncomment this block so backend code (`jvmMain`) is recognized:
         jvmMain.dependencies {
+            implementation(libs.compose.runtime)
             implementation(libs.kobweb.api)
             implementation(libs.kobwebx.serialization.kotlinx)
             implementation(libs.kotlinx.serialization.json)

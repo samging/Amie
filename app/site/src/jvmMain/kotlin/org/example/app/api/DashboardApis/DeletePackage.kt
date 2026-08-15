@@ -2,8 +2,7 @@ package org.example.app.api
 
 import com.varabyte.kobweb.api.Api
 import com.varabyte.kobweb.api.ApiContext
-import com.varabyte.kobweb.api.http.Body
-import com.varabyte.kobweb.api.http.text
+import com.varabyte.kobweb.api.http.setBodyText
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -20,7 +19,7 @@ suspend fun deletePackage(ctx: ApiContext) {
     
     if (path.isEmpty() || username.isEmpty() || token.isEmpty()) {
         ctx.res.status = 400
-        ctx.res.body = Body.text("Missing path, username, or token")
+        ctx.res.setBodyText("Missing path, username, or token")
         return
     }
 
@@ -36,14 +35,14 @@ suspend fun deletePackage(ctx: ApiContext) {
     val authResponse = authClient.send(authRequest, HttpResponse.BodyHandlers.ofString())
     if (authResponse.statusCode() != 200) {
         ctx.res.status = 401
-        ctx.res.body = Body.text("Unauthorized session")
+        ctx.res.setBodyText("Unauthorized session")
         return
     }
 
     val loggedInUser = authResponse.body().substringAfter("dashboard, ").substringBefore(" (ID:")
     if (loggedInUser != username) {
         ctx.res.status = 403
-        ctx.res.body = Body.text("Forbidden: You do not own this repository")
+        ctx.res.setBodyText("Forbidden: You do not own this repository")
         return
     }
 
@@ -69,7 +68,7 @@ suspend fun deletePackage(ctx: ApiContext) {
         val getResponse = client.send(getRequest, HttpResponse.BodyHandlers.ofString())
         if (getResponse.statusCode() != 200) {
             ctx.res.status = getResponse.statusCode()
-            ctx.res.body = Body.text("Error finding file: ${getResponse.body()}")
+            ctx.res.setBodyText("Error finding file: ${getResponse.body()}")
             return
         }
 
@@ -89,10 +88,10 @@ suspend fun deletePackage(ctx: ApiContext) {
 
         val deleteResponse = client.send(deleteRequest, HttpResponse.BodyHandlers.ofString())
         ctx.res.status = deleteResponse.statusCode()
-        ctx.res.body = Body.text(deleteResponse.body())
+        ctx.res.setBodyText(deleteResponse.body())
 
     } catch (e: Exception) {
         ctx.res.status = 500
-        ctx.res.body = Body.text("Delete Error: ${e.message}")
+        ctx.res.setBodyText("Delete Error: ${e.message}")
     }
 }

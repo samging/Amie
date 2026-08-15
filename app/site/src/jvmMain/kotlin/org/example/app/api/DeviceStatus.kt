@@ -2,8 +2,7 @@ package org.example.app.api
 
 import com.varabyte.kobweb.api.Api
 import com.varabyte.kobweb.api.ApiContext
-import com.varabyte.kobweb.api.http.Body
-import com.varabyte.kobweb.api.http.text
+import com.varabyte.kobweb.api.http.setBodyText
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -14,7 +13,7 @@ suspend fun getDeviceStatus(ctx: ApiContext) {
     val username = ctx.req.params["username"] ?: ""
     if (username.isEmpty()) {
         ctx.res.status = 400
-        ctx.res.body = Body.text("Missing 'username' parameter")
+        ctx.res.setBodyText("Missing 'username' parameter")
         return
     }
 
@@ -27,17 +26,18 @@ suspend fun getDeviceStatus(ctx: ApiContext) {
     try {
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         ctx.res.status = response.statusCode()
-        ctx.res.body = Body.text(response.body(), contentType = "application/json")
+        ctx.res.setBodyText(response.body())
+        ctx.res.contentType = "application/json"
     } catch (e: Exception) {
         ctx.res.status = 500
-        ctx.res.body = Body.text("Proxy Error: ${e.message}")
+        ctx.res.setBodyText("Proxy Error: ${e.message}")
     }
 }
 
 @Api("save-device-status")
 suspend fun saveDeviceStatus(ctx: ApiContext) {
     val username = ctx.req.params["username"] ?: ""
-    val bodyText = ctx.req.body?.text() ?: "{}"
+    val bodyText = ctx.req.body?.decodeToString() ?: "{}"
 
     val client = HttpClient.newHttpClient()
     val request = HttpRequest.newBuilder()
@@ -49,9 +49,9 @@ suspend fun saveDeviceStatus(ctx: ApiContext) {
     try {
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         ctx.res.status = response.statusCode()
-        ctx.res.body = Body.text(response.body())
+        ctx.res.setBodyText(response.body())
     } catch (e: Exception) {
         ctx.res.status = 500
-        ctx.res.body = Body.text("Proxy Error: ${e.message}")
+        ctx.res.setBodyText("Proxy Error: ${e.message}")
     }
 }

@@ -2,8 +2,7 @@ package org.example.app.api
 
 import com.varabyte.kobweb.api.Api
 import com.varabyte.kobweb.api.ApiContext
-import com.varabyte.kobweb.api.http.Body
-import com.varabyte.kobweb.api.http.text
+import com.varabyte.kobweb.api.http.setBodyText
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -15,7 +14,7 @@ suspend fun repoByUsername(ctx: ApiContext) {
     val username = ctx.req.params["username"] ?: ""
     if (username.isEmpty()) {
         ctx.res.status = 400
-        ctx.res.body = Body.text("Missing 'username' parameter")
+        ctx.res.setBodyText("Missing 'username' parameter")
         return
     }
 
@@ -30,10 +29,12 @@ suspend fun repoByUsername(ctx: ApiContext) {
     try {
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         ctx.res.status = response.statusCode()
-        ctx.res.body = Body.text(response.body() ?: "[]", contentType = "application/json")
+        ctx.res.setBodyText(response.body() ?: "[]")
+        ctx.res.contentType = "application/json"
     } catch (e: Exception) {
         println("ERROR proxying user-packages: ${e.message}")
         ctx.res.status = 500
-        ctx.res.body = Body.text("[]", contentType = "application/json")
+        ctx.res.setBodyText("[]")
+        ctx.res.contentType = "application/json"
     }
 }
