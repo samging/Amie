@@ -44,12 +44,12 @@ class DeviceService(
         deviceMap: Map<String, DeviceDto>
     ): CompletableFuture<ResponseEntity<String>> {
 
-        if (deviceMap.isEmpty() && action == DeviceActions.SET) {
-            logger.error("deviceMap is empty")
-            return CompletableFuture.completedFuture(
-                ResponseEntity.status(HttpStatus.BAD_REQUEST).body("deviceMap is empty")
-            )
-        }
+//        if (deviceMap.isEmpty() && action == DeviceActions.SET) {
+//            logger.error("deviceMap is empty")
+//            return CompletableFuture.completedFuture(
+//                ResponseEntity.status(HttpStatus.BAD_REQUEST).body("deviceMap is empty")
+//            )
+//        }
 
         val user = if (username.isNotEmpty()) userRepository.findByUsername(username) else null
         if (user == null) {
@@ -81,7 +81,10 @@ class DeviceService(
                         user = user
                     )
                 }
-                
+                println("MMMMMM")
+                println("MMMMMM")
+                println("MMMMMM")
+                println("${deviceStatuses.size} -> ${deviceStatuses}")
                 val savedEntities = deviceStatusRepository.saveAll(deviceStatuses)
                 
                 try {

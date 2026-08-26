@@ -1,131 +1,288 @@
 package org.example.app.pages
 
-import androidx.compose.runtime.Composable
-import com.varabyte.kobweb.compose.css.StyleVariable
-import com.varabyte.kobweb.compose.foundation.layout.Box
-import com.varabyte.kobweb.compose.foundation.layout.Column
-import com.varabyte.kobweb.compose.foundation.layout.Row
+import androidx.compose.runtime.*
+import androidx.compose.runtime.NoLiveLiterals
+import com.varabyte.kobweb.browser.api
+import com.varabyte.kobweb.compose.foundation.layout.Arrangement
+import com.varabyte.kobweb.compose.ui.Alignment
 import com.varabyte.kobweb.compose.ui.Modifier
-import com.varabyte.kobweb.compose.ui.graphics.Color
-import com.varabyte.kobweb.compose.ui.graphics.Colors
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
-import com.varabyte.kobweb.silk.components.forms.Button
-import com.varabyte.kobweb.silk.components.navigation.Link
-import com.varabyte.kobweb.silk.components.text.SpanText
-import com.varabyte.kobweb.silk.style.CssStyle
-import com.varabyte.kobweb.silk.style.base
-import com.varabyte.kobweb.silk.style.breakpoint.Breakpoint
-import com.varabyte.kobweb.silk.style.breakpoint.displayIfAtLeast
-import com.varabyte.kobweb.silk.style.toAttrs
-import com.varabyte.kobweb.silk.style.toModifier
-import com.varabyte.kobweb.silk.theme.colors.ColorMode
-import com.varabyte.kobweb.silk.theme.colors.ColorSchemes
-import org.jetbrains.compose.web.css.cssRem
-import org.jetbrains.compose.web.css.fr
-import org.jetbrains.compose.web.css.px
-import org.jetbrains.compose.web.css.vh
-import org.jetbrains.compose.web.dom.Div
-import org.jetbrains.compose.web.dom.Text
-import org.example.app.HeadlineTextStyle
-import org.example.app.SubheadlineTextStyle
-import org.example.app.toSitePalette
-import org.example.app.components.layouts.PageLayout
+import kotlinx.browser.window
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.await
+import org.jetbrains.compose.web.attributes.InputType
+import org.jetbrains.compose.web.attributes.placeholder
+import org.jetbrains.compose.web.attributes.value
+import org.jetbrains.compose.web.css.*
+import org.jetbrains.compose.web.dom.*
+import kotlin.js.Json
 
-// Container that has a tagline and grid on desktop, and just the tagline on mobile
-val HeroContainerStyle = CssStyle {
-    base { Modifier.fillMaxWidth().gap(2.cssRem) }
-    Breakpoint.MD { Modifier.margin { top(20.vh) } }
+private const val DASHBOARD_URL = "http://localhost:8080/dashboard"
+private const val LIST_GITHUB_URL = "http://localhost:8080/list-github"
+private const val QUERY_URL = "http://localhost:8080/query?query="
+
+// In-memory cache for Explorer data
+private object ExplorerCache {
+    var packages: List<Json>? = null
 }
 
-// A demo grid that appears on the homepage because it looks good
-val HomeGridStyle = CssStyle.base {
-    Modifier
-        .gap(0.5.cssRem)
-        .width(70.cssRem)
-        .height(18.cssRem)
-}
-
-private val GridCellColorVar by StyleVariable<Color>()
-val HomeGridCellStyle = CssStyle.base {
-    Modifier
-        .backgroundColor(GridCellColorVar.value())
-        .boxShadow(blurRadius = 0.6.cssRem, color = GridCellColorVar.value())
-        .borderRadius(1.cssRem)
-}
-
+@NoLiveLiterals
+@Page("/")
 @Composable
-private fun GridCell(color: Color, row: Int, column: Int, width: Int? = null, height: Int? = null) {
+fun AboutPaged() {
+    var text by remember { mutableStateOf("") }
+    var loadedPackages by remember { mutableStateOf<List<Json>>(emptyList()) }
+    var loggedInUser by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+    val ctx = rememberPageContext()
+
+    LaunchedEffect(Unit) {
+        isLoading = true
+        
+        val token = window.localStorage.getItem("auth_token")
+        if (token != null) {
+            try {
+                val headers = js("{}")
+                headers["Authorization"] = "Bearer $token"
+                val options = js("{}")
+                options["headers"] = headers
+                
+                val response = window.fetch(DASHBOARD_URL, options).await()
+                if (response.ok) {
+                    val text = response.text().await()
+                    loggedInUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
+                }
+            } catch (e: Exception) {
+                println("Auth check failed in Aboutss: $e")
+            }
+        }
+
+        try {
+            if (ExplorerCache.packages != null) {
+                loadedPackages = ExplorerCache.packages!!
+                println("DEBUG: Loaded Explorer from cache")
+            } else {
+                val response = window.fetch(LIST_GITHUB_URL).await()
+                if (response.ok) {
+                    val json = response.json().await().unsafeCast<Array<Json>>()
+                    loadedPackages = json.toList()
+                    ExplorerCache.packages = loadedPackages
+                }
+            }
+        } catch (e: Exception) {
+            println("Connection failed: ${e.message}")
+        } finally {
+            isLoading = false
+        }
+    }
+
     Div(
-        HomeGridCellStyle.toModifier()
-            .setVariable(GridCellColorVar, color)
-            .gridItem(row, column, width, height)
-            .toAttrs()
-    )
-}
+        attrs = Modifier.padding(24.px).fillMaxWidth().toAttrs()
+    ) {
+        Div(Modifier.margin(bottom = 10.px).display(DisplayStyle.Flex).justifyContent(JustifyContent.SpaceBetween).toAttrs()) {
+            H1(Modifier.margin(0.px).toAttrs()) {
+                Text("Package Explorer")
+            }
+            Div(attrs =
+                Modifier.size(height = 25.px, width = 100.px)
+                    .display(DisplayStyle.Flex).gap(4.px)
+                    .flexDirection(FlexDirection.Column)
+                    .backgroundColor(Color.black)
+                    .toAttrs()
+            ) {
+                    Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
+                        onClick { ctx.router.navigateTo("/loginpage"); window.location.reload() }
+                    }) {
+                        Text(if (loggedInUser != null) "Logged in as $loggedInUser" else "Login")
+                    }
 
-@Page
-@Composable
-fun HomePage() {
-    PageLayout("Home") {
-        Row(HeroContainerStyle.toModifier()) {
-            Box {
-                val sitePalette = ColorMode.current.toSitePalette()
+                    Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
+                        onClick { ctx.router.navigateTo("/register"); window.location.reload() }
+                    }) {
+                        Text(if (loggedInUser != null) "Logged in as $loggedInUser" else "Register")
+                    }
+            }
+        }
 
-                Column(Modifier.gap(2.cssRem)) {
-                    Div(HeadlineTextStyle.toAttrs()) {
-                        SpanText(
-                            "Use this template as your starting point for ", Modifier.color(
-                                when (ColorMode.current) {
-                                    ColorMode.LIGHT -> Colors.Black
-                                    ColorMode.DARK -> Colors.White
+
+        Div(Modifier.margin(bottom = 20.px).toAttrs()) {
+                Input(
+                type = InputType.Text,
+                attrs = Modifier
+                    .width(300.px)
+                    .padding(10.px)
+                    .borderRadius(4.px)
+                    .border(1.px, LineStyle.Solid, Color.lightgray)
+                    .toAttrs {
+                        placeholder("Search for package by name")
+                        value(text)
+                        onInput { event ->
+                            text = event.value
+                        }
+                    }
+            )
+
+            Button(
+                attrs = Modifier.margin(left = 10.px).padding(topBottom = 10.px, leftRight = 20.px).toAttrs {
+                    onClick {
+                        scope.launch {
+                            isLoading = true
+                            try {
+                                val encodedText = js("encodeURIComponent")(text) as String
+
+                                val response = window.fetch("$QUERY_URL$encodedText").await()
+
+                                if (response.ok) {
+                                    val json = response.json().await()
+                                    
+                                    if (js("Array.isArray(json)") as Boolean) {
+                                        loadedPackages = (json as Array<Json>).toList()
+                                    } else if (json != null) {
+                                        loadedPackages = listOf(json.unsafeCast<Json>())
+                                    } else {
+                                        loadedPackages = emptyList()
+                                    }
+
+                                    ExplorerCache.packages = loadedPackages
                                 }
-                            )
-                        )
-                        SpanText(
-                            "Kobweb",
-                            Modifier
-                                .color(sitePalette.brand.accent)
-                                // Use a shadow so this light-colored word is more visible in light mode
-                                .textShadow(0.px, 0.px, blurRadius = 0.5.cssRem, color = Colors.Gray)
-                        )
+                            } catch (e: Exception) {
+                                println("Search failed: $e")
+                            } finally {
+                                isLoading = false
+                            }
+                        }
                     }
+                }
+            ) {
+                Text("Search")
+            }
+        }
 
-                    Div(SubheadlineTextStyle.toAttrs()) {
-                        SpanText("You can read the ")
-                        Link("/about", "About")
-                        SpanText(" page for more information.")
+        H3 { Text("Available Packages & Authors:") }
+
+        if (isLoading) {
+            P { Text("Fetching data...") }
+        } else {
+            if (loadedPackages.isEmpty()) {
+                P { Text("No items found.") }
+            } else {
+                Table(
+                    attrs = Modifier
+                        .fillMaxWidth()
+                        .border(1.px, LineStyle.Solid, Color.lightgray)
+                        .borderRadius(8.px)
+                        .toAttrs()
+                ) {
+                    Thead {
+                        Tr {
+                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Name") }
+                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Category") }
+                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Size") }
+                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) { Text("Actions") }
+                        }
                     }
+                    Tbody {
+                        for (item in loadedPackages) {
+                            val rawName = item["name"] as? String ?: "Unknown"
+                            val type = item["type"] as? String ?: "file"
+                            val isDir = type == "dir"
+                            
+                            val name = if (isDir) "👤 $rawName (Author)" else "📄 $rawName"
+                            val category = if (isDir) "User Repository" else "Binary Package"
+                            
+                            val path = item["path"] as? String ?: ""
+                            val owner = if (isDir) rawName else {
+                                // Extract owner from path like uploads/username/...
+                                path.substringAfter("uploads/").substringBefore("/")
+                            }
 
-                    val ctx = rememberPageContext()
-                    Button(onClick = {
-                        ctx.router.tryRoutingTo("/about")
-                    }, colorScheme = ColorSchemes.Blue) {
-                        Text("This could be your CTA")
+                            val sizeInBytes = (item["size"] as? Number)?.toDouble() ?: 0.0
+                            val sizeDisplay = if (sizeInBytes > 0) {
+                                if (sizeInBytes > 1024 * 1024) {
+                                    "${(sizeInBytes / (1024.0 * 1024.0)).asDynamic().toFixed(2)} MB"
+                                } else {
+                                    "${(sizeInBytes / 1024.0).asDynamic().toFixed(2)} KB"
+                                }
+                            } else "-"
+
+                            Tr(attrs = Modifier.borderTop(1.px, LineStyle.Solid, Color.lightgray).toAttrs()) {
+                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(name) }
+                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(category) }
+                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(sizeDisplay) }
+                                Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
+                                    if (isDir) {
+                                        Button(attrs = Modifier.margin(right = 5.px).toAttrs {
+                                            onClick {
+                                                ctx.router.navigateTo("/dashboard?username=$rawName")
+                                            }
+                                        }) {
+                                            Text("View Author's Packages")
+                                        }
+                                    } else {
+                                        val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
+                                        if (downloadUrl.isNotEmpty()) {
+                                            A(href = downloadUrl, attrs = Modifier.margin(right = 5.px).toAttrs()) {
+                                                Button { Text("Download") }
+                                            }
+                                        } else {
+                                            Text("N/A")
+                                        }
+                                        
+                                        Button(
+                                            attrs = Modifier.margin(right = 5.px).toAttrs({
+                                                onClick {
+                                                    ctx.router.navigateTo("/view?package=$path&username=$owner&from=aboutss")
+                                                }
+                                            })
+                                        ) { Text("View") }
+                                    }
+                                    
+                                    if (owner == loggedInUser && !isDir) {
+                                        Button(
+                                            attrs = Modifier.margin(right = 5.px).toAttrs({
+                                                onClick {
+                                                    ctx.router.navigateTo("/edit?package=$path&username=$owner")
+                                                }
+                                            })
+                                        ) { Text("Edit") }
+                                        
+                                        Button(
+                                            attrs = Modifier.toAttrs({
+                                                onClick {
+                                                    scope.launch {
+                                                        try {
+                                                            window.api.get("delete-package?package=$path&username=$owner")
+                                                            ExplorerCache.packages = null // Invalidate cache
+                                                            window.location.reload()
+                                                        } catch(e: Exception) {
+                                                            println("Delete failed: $e")
+                                                        } 
+                                                    }
+                                                }
+                                            })
+                                        ) { Text("Delete") }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
 
-            Div(
-                HomeGridStyle
-                    .toModifier()
-                    .displayIfAtLeast(Breakpoint.MD)
-                    .grid {
-                        rows { repeat(3) { size(1.fr) } }
-                        columns { repeat(5) { size(1.fr) } }
-                    }
-                    .toAttrs()
-            ) {
-                val sitePalette = ColorMode.current.toSitePalette()
-                GridCell(sitePalette.brand.primary, 1, 1, 2, 2)
-                GridCell(ColorSchemes.Monochrome._600, 1, 3)
-                GridCell(ColorSchemes.Monochrome._100, 1, 4, width = 2)
-                GridCell(sitePalette.brand.accent, 2, 3, width = 2)
-                GridCell(ColorSchemes.Monochrome._300, 2, 5)
-                GridCell(ColorSchemes.Monochrome._800, 3, 1, width = 5)
+        Button(
+            attrs = Modifier.margin(top = 20.px).toAttrs {
+                onClick {
+                    ctx.router.navigateTo("/navigateto"); window.location.reload()
+                }
             }
+        ) {
+            Text("Go to Upload")
         }
     }
 }

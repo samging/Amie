@@ -1,14 +1,16 @@
 #!/bin/zsh
 
-# Set your token here so all child processes see it
-export GITHUB_TOKEN=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
+export JAVA_HOME=/Users/samuel/Library/Java/JavaVirtualMachines/ms-21.0.10/Contents/Home
+export GITHUB_TOKEN=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
 
 echo "Starting Amie Full Stack..."
 
+# Start Backend
 cd /Users/samuel/Documents/GitHub/Amie/packageRepository
 ./gradlew bootRun &
 
+# Start Frontend
 cd /Users/samuel/Documents/GitHub/Amie/app
-./gradlew :site:kobwebStart &
+./gradlew :site:kobwebRun &
 
-echo "Servers are starting in the background. Check your browser at http://localhost:8081"
+echo "Servers are starting in the background."

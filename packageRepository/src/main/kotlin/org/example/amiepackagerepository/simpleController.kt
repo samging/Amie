@@ -7,8 +7,17 @@ import org.springframework.web.server.ResponseStatusException
 import org.springframework.http.HttpStatus
 import java.io.File
 import io.jsonwebtoken.Claims
+import kotlinx.coroutines.future.await
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import java.util.concurrent.CompletableFuture
 import org.springframework.http.ResponseEntity
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+
 
 /**
  * REST Controller providing HTTP endpoints to interact with Google Drive and GitHub.
@@ -16,6 +25,14 @@ import org.springframework.http.ResponseEntity
  * @property simpleService The business logic service handling Drive and GitHub operations.
  * @property userService The business logic service handling user operations.
  */
+
+@Serializable
+data class sendDeviceStatusDto(
+	val action: DeviceActions,
+	val username: String,
+	val deviceMap: Map<String, DeviceDto>
+)
+
 @CrossOrigin(origins = ["http://localhost:8081"])
 @RestController
 class SimpleController(
@@ -24,7 +41,7 @@ class SimpleController(
 	private val userService: UserService,
     private val deviceService: DeviceService
 ) {
-
+	private val logger = org.slf4j.LoggerFactory.getLogger(SimpleController::class.java)
 	/**
 	 * Retrieves a formatted list of all files present in the Google Drive.
 	 * @return A string representation/log of the files found in the drive.
@@ -32,6 +49,16 @@ class SimpleController(
 	@GetMapping("/list-disk")
 	fun getFiles(): String {
 		return simpleService.listFiles(driveService)
+	}
+
+	@GetMapping("/fetch-endpoints")
+	fun fetchEndpoints(): Map<String, String>? {
+		return simpleService.fetchEndpoints()
+	}
+
+	@PostMapping("/post-endpoints")
+	fun postEndpoints() {
+		simpleService.postEndpoints()
 	}
 
 	/**
@@ -68,19 +95,109 @@ class SimpleController(
 		@RequestParam("username") username: String,
 		@RequestHeader("Authorization") authHeader: String
 	): String {
+		logger.info("CONTROLLER: Received upload request for user '{}', file '{}', language '{}'", username, file.originalFilename, progLanguage)
 		val token = authHeader.removePrefix("Bearer ")
-		val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
-		if (claims.subject != username) throw ResponseStatusException(HttpStatus.FORBIDDEN)
+		val claims = userService.validateToken(token) ?: run {
+			logger.warn("CONTROLLER: Unauthorized upload attempt for user '{}'", username)
+			throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
+		}
 
-		println("DEBUG: Upload request received - file: ${file.originalFilename}, progLanguage: $progLanguage, username: $username")
+		if (claims.subject != username) {
+			logger.warn("CONTROLLER: Forbidden upload attempt. Token subject '{}' does not match request username '{}'", claims.subject, username)
+			throw ResponseStatusException(HttpStatus.FORBIDDEN)
+		}
+
 		return try {
 			simpleService.uploadFile(username, progLanguage, file)
+			logger.info("CONTROLLER: Upload successful for user '{}', file '{}'", username, file.originalFilename)
 			"File uploaded successfully"
 		} catch (e: com.google.api.client.googleapis.json.GoogleJsonResponseException) {
+			logger.error("CONTROLLER: Google API Error: {}", e.details?.message ?: e.message)
 			"Google API Error: ${e.details?.message ?: e.message}"
 		} catch (e: Exception) {
+			logger.error("CONTROLLER: Unexpected error during upload: {}", e.message, e)
 			"Error uploading file: ${e.message}"
 		}
+	}
+
+	@PostMapping("/update-device-status")
+	suspend fun updateDeviceStatus(
+		@RequestBody deviceUpdateDto: sendDeviceStatusDto
+	){
+		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		logger.info("Received device update request for user: ${deviceUpdateDto.username}")
+
+		val response = deviceService.repositoryDeviceController(
+			DeviceActions.SET, deviceUpdateDto.username, deviceUpdateDto.deviceMap
+		).await()
+		if (response.statusCode == HttpStatus.OK){
+			logger.info("Device update successful for user: ${deviceUpdateDto.username}")
+		} else {
+			logger.error("Device update failed for user: ${deviceUpdateDto.username} \n Response: ${response.body} \n -with status code: ${response.statusCode} \n params: ${deviceUpdateDto}")
+		}
+	}
+	@OptIn(ExperimentalEncodingApi::class)
+	@PostMapping("/get-device-status")
+	suspend fun getDeviceStatus(
+		@RequestBody deviceUpdateDto: sendDeviceStatusDto
+	): Map<String, DeviceDto>? {
+		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		logger.info("Received device update request for user: ${deviceUpdateDto.username}")
+
+		val response = deviceService.repositoryDeviceController(
+			DeviceActions.GET, deviceUpdateDto.username, deviceUpdateDto.deviceMap
+		).await()
+
+		if (response.statusCode == HttpStatus.OK) {
+			val responseBody = response.body ?: "{}"
+			val parsed = Json.parseToJsonElement(responseBody) as? JsonObject
+			val base64Content = parsed?.get("content")?.jsonPrimitive?.content
+			var responseString: String = ""
+
+			try {
+				if (base64Content != null) {
+					val cleanedBase64 = base64Content.replace("\n", "").replace("\r", "")
+					val decodedBytes = Base64.Default.decode(cleanedBase64)
+					responseString = String(decodedBytes, Charsets.UTF_8)
+				} else {
+					responseString = responseBody
+				}
+			} catch(e: Exception) {
+				logger.error("Response error ${e.message}")
+			}
+			logger.info("Device update successful for user: ${deviceUpdateDto.username}")
+
+			println("[RESPONSE][][][][][][][][][][][][][][][][][][][][][][][][][][][][START]")
+			val decod = Json.decodeFromString<Map<String, DeviceDto>>(responseString)
+			println(responseString)
+			println("[RESPONSE][][][][][][][][][][][][][][][][][][][][][][][][][][][][END]")
+			println("[DECOD][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+			println(decod)
+			return decod
+		} else {
+			logger.error("Device update failed for user: ${deviceUpdateDto.username} \n Response: ${response.body} \n -with status code: ${response.statusCode} \n params: ${deviceUpdateDto}")
+			return emptyMap()
+		}
+	}
+
+	@GetMapping("list-github-metadata")
+	fun listGithubMetadata(): Map<String, GithubItemMetadata> {
+		val githubItems = simpleService.listFilesGithub()
+		return githubItems.mapIndexed { index, item ->
+			index.toString() to GithubItemMetadata(
+				name = item.name,
+				downloadUrl = item.downloadUrl,
+				id = item.id,
+				type = item.type,
+				endComp = item.name.endsWith(".c").toString()
+			)
+		}.toMap()
 	}
 
 	@PostMapping("/edit")
@@ -168,6 +285,7 @@ class SimpleController(
 
 		val token = userService.loginAsUser(username, password)
             ?: if (username.startsWith("guest-") && password == "") {
+				println("GUEST TOKEN GENERATED")
 				userService.grantGuestToken(username)
 			} else {
 				throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials")
@@ -175,6 +293,8 @@ class SimpleController(
 
 		println("DEBUG: Login successful for $username, generating dashboard...")
 		try {
+			userService.grantUserToken(username)
+			println("USER TOKEN GENERATED")
 			simpleService.createUserDashboard(username = username)
 		} catch (e: Exception) {
 			println("DEBUG: Dashboard creation non-fatal error: ${e.message}")
@@ -198,7 +318,7 @@ class SimpleController(
 		val claims = userService.validateToken(token) 
             ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized or expired token")
 		val username = claims.subject
-		val userId = claims["userId", Long::class.java]
+		val userId = (claims["userId"] as? Number)?.toLong() ?: -1L
 
 		return "Welcome to your dashboard, $username (ID: $userId)!"
 	}

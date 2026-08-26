@@ -72,6 +72,28 @@ class UserService(private val userRepository: UserRepository) {
         }
         return token
     }
+
+    fun grantUserToken(username: String): String {
+        val user = if (userRepository.existsByUsername(username)) {
+            userRepository.findByUsername(username) 
+        } else {
+            userRepository.save(User(username = username, password = ""))
+        }
+
+        val token = Jwts.builder()
+            .subject(username)
+            .claim("userId", -1L)
+            .issuedAt(Date())
+            .expiration(Date(System.currentTimeMillis() + 60 * 60 * 2000))
+            .signWith(secretKey)
+            .compact()
+
+        if (!userRepository.existsByUsername(username)) {
+            userRepository.save(User(username = username, password = ""))
+        }
+        return token
+    }
+
     fun validateToken(token: String): Claims? {
         try {
             return Jwts.parser()

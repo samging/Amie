@@ -20,6 +20,7 @@ kobweb {
 }
 
 kotlin {
+    jvmToolchain(21)
     js {
         compilerOptions {
             freeCompilerArgs.add("-P=plugin:androidx.compose.compiler.plugins.kotlin:liveLiterals=false")

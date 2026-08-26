@@ -3,6 +3,7 @@ package org.example.app.pages
 import androidx.compose.runtime.*
 import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.browser.api
+import com.varabyte.kobweb.compose.foundation.layout.Arrangement
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
@@ -18,6 +19,9 @@ import org.jetbrains.compose.web.css.px
 import org.jetbrains.compose.web.dom.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.jetbrains.compose.web.css.AlignItems
+import org.jetbrains.compose.web.css.DisplayStyle
+import org.jetbrains.compose.web.css.FlexDirection
 
 @NoLiveLiterals
 @Page("loginpage")
@@ -34,12 +38,18 @@ fun LoginPagee() {
     val ctx = rememberPageContext()
 
     Div(
-        attrs = Modifier.padding(24.px).toAttrs()
+        attrs = Modifier
+            .fillMaxSize()
+            .padding(24.px)
+            .display(DisplayStyle.Flex)
+            .flexDirection(FlexDirection.Column)
+            .alignItems(AlignItems.Center)
+            .toAttrs()
     ) {
         H1 {
             Text("Login Page")
         }
-        Div(){
+        Div() {
             Input(
                 type = InputType.Text,
                 attrs = Modifier
@@ -70,44 +80,56 @@ fun LoginPagee() {
                     }
             )
         }
-    }
 
-    Div() {
-        Button(
-            attrs = Modifier.toAttrs {
-                onClick {
-                    if (name.isNotEmpty() && password.isNotEmpty()) {
-                        scope.launch {
-                            val requestBody = Json.encodeToString(mapOf("username" to name, "password" to password))
-                            try {
-                                val options = js("{}")
-                                options["method"] = "POST"
-                                options["body"] = requestBody
-                                options["headers"] = js("{ 'Content-Type': 'application/json' }")
 
-                                val response = window.fetch("http://localhost:8081/api/login", options).await()
-                                if (response.ok) {
-                                    val responseText = response.text().await()
-                                    val token = JSON.parse<dynamic>(responseText).token as? String
-                                    if (token != null) {
-                                        window.localStorage.setItem("auth_token", token)
-                                        window.localStorage.setItem("username", name)
+        Div() {
+            Button(
+                attrs = Modifier.toAttrs {
+                    onClick {
+                        if (name.isNotEmpty() && password.isNotEmpty()) {
+                            scope.launch {
+                                val requestBody = Json.encodeToString(
+                                    mapOf(
+                                        "username" to name,
+                                        "password" to password
+                                    )
+                                )
+                                try {
+                                    val options = js("{}")
+                                    options["method"] = "POST"
+                                    options["body"] = requestBody
+                                    options["headers"] =
+                                        js("{ 'Content-Type': 'application/json' }")
+
+                                    val response =
+                                        window.fetch("http://localhost:8081/api/login", options)
+                                            .await()
+                                    if (response.ok) {
+                                        val responseText = response.text().await()
+                                        val json = JSON.parse<dynamic>(responseText)
+                                        val token = json.token as? String
+                                        if (token != null) {
+                                            window.localStorage.setItem("auth_token", token)
+                                            window.localStorage.setItem("username", name)
+                                            ctx.router.navigateTo("/dashboard?username=$name")
+                                        } else {
+                                            println("Token missing in response")
+                                        }
+                                    } else {
+                                        println("Login failed with status: ${response.status}")
                                     }
-                                    ctx.router.navigateTo("/dashboard?username=$name")
-                                } else {
-                                    println("Login failed with status: ${response.status}")
+                                } catch (e: Exception) {
+                                    println("Error: ${e.message}")
                                 }
-                            } catch (e: Exception) {
-                                println("Error: ${e.message}")
                             }
+                        } else {
+                            println("Please enter both username and password")
                         }
-                    } else {
-                        println("Please enter both username and password")
                     }
                 }
+            ) {
+                Text("Login")
             }
-        ) {
-            Text("Login")
         }
     }
 }

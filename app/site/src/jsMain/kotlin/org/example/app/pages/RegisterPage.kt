@@ -25,6 +25,9 @@ import org.jetbrains.compose.web.css.px
 import org.jetbrains.compose.web.dom.*
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.jetbrains.compose.web.css.AlignItems
+import org.jetbrains.compose.web.css.DisplayStyle
+import org.jetbrains.compose.web.css.FlexDirection
 
 @NoLiveLiterals
 @Page("register")
@@ -39,7 +42,13 @@ fun RegisterPage() {
     val ctx = rememberPageContext()
 
     Div(
-        attrs = Modifier.padding(24.px).toAttrs()
+        attrs = Modifier
+            .fillMaxSize()
+            .padding(24.px)
+            .display(DisplayStyle.Flex)
+            .flexDirection(FlexDirection.Column)
+            .alignItems(AlignItems.Center)
+            .toAttrs()
     ) {
         H1 {
             Text("Register Page")

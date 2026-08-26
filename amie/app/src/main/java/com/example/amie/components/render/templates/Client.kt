@@ -53,7 +53,7 @@ class Client {
         parameter: Any? = null
     ): Map<String, String>? {
         isLoading = true
-        val hostIp = "192.168.1.103"
+        val hostIp = "192.168.1.114"
         val slugPath = slug.joinToString("/")
 
         println("DEBUG: Testing internet connectivity via google.com...")
@@ -163,7 +163,7 @@ class Client {
     suspend fun handleLoginError(errorMessage: String?) {
         lastErrorMessage = errorMessage
         dialogResponse = true
-        val hostIp = "192.168.1.103"
+        val hostIp = "192.168.1.114"
 
         try {
             val tweakResponse = client.post("http://$hostIp:8080/handle-login-error") {

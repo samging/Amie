@@ -48,6 +48,8 @@ fun Navigateto() {
 
     LaunchedEffect(Unit) {
         val token = window.localStorage.getItem("auth_token")
+        println("DEBUG: Navigateto token: $token")
+        
         if (token != null) {
             try {
                 val headers = js("{}")
@@ -56,10 +58,18 @@ fun Navigateto() {
                 options["headers"] = headers
 
                 val response = window.fetch("http://localhost:8080/dashboard", options).await()
+
                 if (response.ok) {
                     val text = response.text().await()
-                    loggedInUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
+                    val extractedUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
+                    loggedInUser = extractedUser
+
+                    println("Dashboard check successful: $extractedUser")
+                    if (username.isBlank() && extractedUser.isNotEmpty()) {
+                        ctx.router.navigateTo("/navigateto?username=$extractedUser")
+                    }
                 } else {
+                    println("Dashboard check failed with status: ${response.status}")
                     ctx.router.navigateTo("/loginpage")
                 }
             } catch (e: Exception) {
@@ -67,6 +77,7 @@ fun Navigateto() {
                 ctx.router.navigateTo("/loginpage")
             }
         } else {
+            println("No auth_token found, redirecting to login")
             ctx.router.navigateTo("/loginpage")
         }
     }
@@ -77,177 +88,203 @@ fun Navigateto() {
             showPopup = false
         }
     }
-    
-    Div(Modifier.padding(24.px).toAttrs()) {
-        H1 { Text("Upload your binary") }
-        P { Text("Uploading as user: $username") }
-    }
+    Div() {
+        Div(Modifier.padding(24.px).toAttrs()) {
+            H1 { Text("Upload your binary") }
+            P { Text("Uploading as user: $username") }
+        }
 
-    H3 { Text("Package Name: $packageName") }
-    Input(
-        type = InputType.Text,
-        attrs = Modifier
-            .width(250.px)
-            .padding(8.px)
-            .toAttrs {
-                placeholder("Package name")
-                value(packageName)
+        H3 { Text("Package Name: $packageName") }
+        Input(
+            type = InputType.Text,
+            attrs = Modifier
+                .width(250.px)
+                .padding(8.px)
+                .toAttrs {
+                    placeholder("Package name")
+                    value(packageName)
 
-                onInput { evt ->
-                    packageName = evt.value
-                }
-            }
-    )
-
-    H3 { Text("Programming Language: ") }
-    Input(
-        type = InputType.Text,
-        attrs = Modifier
-            .width(250.px)
-            .padding(8.px)
-            .toAttrs {
-                placeholder("e.g. Kotlin, Python, etc.")
-                value(progLanguage)
-                onInput { evt ->
-                    progLanguage = evt.value
-                }
-            }
-    )
-
-    H3 { Text("Package Description: ") }
-    Input(
-        type = InputType.Text,
-        attrs = Modifier
-            .width(250.px)
-            .padding(8.px)
-            .toAttrs {
-                placeholder("Description for usage")
-                value(packageDescription)
-                onInput { evt ->
-                    packageDescription = evt.value
-                }
-            }
-    )
-
-    Div(
-        attrs = Modifier
-            .id("dropzone")
-            .fillMaxWidth()
-            .height(150.px)
-            .margin(top = 20.px)
-            .border(2.px, LineStyle.Dashed, if (isDragging) Colors.Blue else Colors.Gray)
-            .borderRadius(8.px)
-            .padding(20.px)
-            .display(DisplayStyle.Flex)
-            .alignItems(AlignItems.Center)
-            .justifyContent(JustifyContent.Center)
-            .toAttrs {
-                onDragOver { evt ->
-                    evt.preventDefault()
-                    isDragging = true
-                }
-                onDragLeave { _ ->
-                    isDragging = false
-                }
-                onDrop { evt ->
-                    evt.preventDefault()
-                    isDragging = false
-
-                    val file = evt.dataTransfer?.files?.item(0) as? File
-                    if (file != null) {
-                        selectedFile = file
-                        fileName = file.name
-                        fileSize = file.size.toDouble()
-                        fileSuffix = file.name.substringAfterLast(".")
-                        showPopup = true
+                    onInput { evt ->
+                        packageName = evt.value
                     }
                 }
-            }
-    ) {
-        if (fileName != null) {
-            P {
-                Text("Selected file: $fileName")
-            }
-        } else {
-            Text("Drop your binary file here")
-        }
-    }
+        )
 
-    if (showPopup && fileName != null) {
-        Overlay(
-            Modifier
-                .setVariable(OverlayVars.BackgroundColor, Colors.Transparent)
-                .onClick { showPopup = false }
-        ) {
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .margin(top = 20.px)
-                    .padding(12.px)
-                    .backgroundColor(Colors.LightGreen)
-                    .borderRadius(8.px)
-                    .boxShadow(0.px, 4.px, 12.px, color = Colors.Black.toRgb().copyf(alpha = 0.2f))
-            ) {
-                Text("File $fileName prepared for submission!")
-            }
-        }
-    }
+//        H3 { Text("Programming Language: ") }
+//        Input(
+//            type = InputType.Text,
+//            attrs = Modifier
+//                .width(250.px)
+//                .padding(8.px)
+//                .toAttrs {
+//                    placeholder("e.g. Kotlin, Python, etc.")
+//                    value(progLanguage)
+//                    onInput { evt ->
+//                        progLanguage = evt.value
+//                    }
+//                }
+//        )
 
-
-    if (selectedFile != null) {
-        Button(
-            attrs = Modifier.margin(top = 20.px).toAttrs {
-                onClick {
-                    if (progLanguage.isBlank()) {
-                        uploadStatus = "Please specify a programming language."
-                        return@onClick
+        H3 { Text("Package Description: ") }
+        TextArea (
+            attrs = Modifier
+                .width(250.px)
+                .height(250.px)
+                .padding(8.px)
+                .toAttrs {
+                    placeholder("Description for usage")
+                    value(packageDescription)
+                    onInput { evt ->
+                        packageDescription = evt.value
                     }
-                    scope.launch {
-                        uploadStatus = "Uploading..."
-                        try {
-                            val targetUser = loggedInUser ?: username
-                            val formData = FormData()
-                            formData.append("file", selectedFile!!)
-                            formData.append("username", targetUser)
-                            formData.append("progLanguage", progLanguage!!)
+                }
+        )
 
-                            val options = js("{}")
-                            options["method"] = "POST"
-                            options["body"] = formData
-                            val headers = js("{}")
-                            headers["Authorization"] = "Bearer ${window.localStorage.getItem("auth_token")}"
-                            options["headers"] = headers
+        Div(
+            attrs = Modifier
+                .id("dropzone")
+                .fillMaxWidth()
+                .height(150.px)
+                .margin(top = 20.px)
+                .border(2.px, LineStyle.Dashed, if (isDragging) Colors.Blue else Colors.Gray)
+                .borderRadius(8.px)
+                .padding(20.px)
+                .display(DisplayStyle.Flex)
+                .alignItems(AlignItems.Center)
+                .justifyContent(JustifyContent.Center)
+                .toAttrs {
+                    onDragOver { evt ->
+                        evt.preventDefault()
+                        isDragging = true
+                    }
+                    onDragLeave { _ ->
+                        isDragging = false
+                    }
+                    onDrop { evt ->
+                        evt.preventDefault()
+                        isDragging = false
 
-                            val response = window.fetch("http://localhost:8080/upload", options).await()
-                            
-                            if (response.ok) {
-                                val result = response.text().await()
-                                uploadStatus = "Success: $result"
-                                delay(2000)
-                                ctx.router.navigateTo("/dashboard?username=$targetUser")
-                            } else {
-                                uploadStatus = "Error: ${response.statusText}"
-                            }
-                        } catch (e: Exception) {
-                            uploadStatus = "Failed: ${e.message}"
+                        val file = evt.dataTransfer?.files?.item(0) as? File
+                        if (file != null) {
+                            selectedFile = file
+                            fileName = file.name
+                            fileSize = file.size.toDouble()
+                            fileSuffix = file.name.substringAfterLast(".")
+                            showPopup = true
                         }
                     }
                 }
-            }
         ) {
-            Text("Submit Package")
+            if (fileName != null) {
+                P {
+                    Text("Selected file: $fileName")
+                }
+            } else {
+                Text("Drop your binary file here")
+            }
         }
 
-        Div( attrs = Modifier.fontSize(12.px).margin(top = 10.px).toAttrs()) {
-            P { Text("File: $fileName") }
-            P { Text("Size: ${(fileSize / 1024).toInt()} KB") }
-            P { Text("Type: $fileSuffix") }
+        if (showPopup && fileName != null) {
+            Overlay(
+                Modifier
+                    .setVariable(OverlayVars.BackgroundColor, Colors.Transparent)
+                    .onClick { showPopup = false }
+            ) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .margin(top = 20.px)
+                        .padding(12.px)
+                        .backgroundColor(Colors.LightGreen)
+                        .borderRadius(8.px)
+                        .boxShadow(
+                            0.px,
+                            4.px,
+                            12.px,
+                            color = Colors.Black.toRgb().copyf(alpha = 0.2f)
+                        )
+                ) {
+                    Text("File $fileName prepared for submission!")
+                }
+            }
         }
-    }
 
-    if (uploadStatus != null) {
-        P(Modifier.margin(top = 10.px).toAttrs()) {
-            Text(uploadStatus!!)
+
+        if (selectedFile != null) {
+            Button(
+                attrs = Modifier.margin(top = 20.px).toAttrs {
+                    onClick {
+                        if (progLanguage.isBlank()) {
+                            val pattern = Regex("""\.([a-zA-Z0-9]+)$""")
+                            val currentFileName = fileName ?: ""
+                            val matchResult = pattern.find(currentFileName)
+
+                            progLanguage = if (matchResult != null) {
+                                matchResult.groupValues[1]
+                            } else {
+                                ""
+                            }
+                            println("PACKAGE NAME: $packageName")
+                            println("FILE NAME: $fileName")
+                            println("PROG LANG: $progLanguage")
+                            return@onClick
+                        }
+                        scope.launch {
+                            uploadStatus = "Uploading..."
+                            try {
+                                val targetUser = loggedInUser ?: username
+                                if (targetUser.isBlank()) {
+                                    uploadStatus = "Error: No user specified."
+                                    return@launch
+                                }
+
+                                println("[PROG-LANG]: $progLanguage")
+
+                                val formData = FormData()
+                                formData.append("file", selectedFile!!)
+                                formData.append("username", targetUser)
+                                formData.append("progLanguage", progLanguage)
+
+                                val options = js("{}")
+                                options["method"] = "POST"
+                                options["body"] = formData
+                                val headers = js("{}")
+                                val token = window.localStorage.getItem("auth_token")
+                                headers["Authorization"] = "Bearer $token"
+                                options["headers"] = headers
+
+                                val response =
+                                    window.fetch("http://localhost:8080/upload", options).await()
+
+                                if (response.ok) {
+                                    val result = response.text().await()
+                                    uploadStatus = "Success: $result"
+                                    delay(2000)
+                                    ctx.router.navigateTo("/dashboard?username=$targetUser")
+                                } else {
+                                    uploadStatus = "Error: ${response.statusText}"
+                                }
+                            } catch (e: Exception) {
+                                uploadStatus = "Failed: ${e.message}"
+                            }
+                        }
+                    }
+                }
+            ) {
+                Text("Submit Package")
+            }
+
+            Div(attrs = Modifier.fontSize(12.px).margin(top = 10.px).toAttrs()) {
+                P { Text("File: $fileName") }
+                P { Text("Size: ${(fileSize / 1024).toInt()} KB") }
+                P { Text("Type: $fileSuffix") }
+            }
+        }
+
+        if (uploadStatus != null) {
+            P(Modifier.margin(top = 10.px).toAttrs()) {
+                Text(uploadStatus!!)
+            }
         }
     }
 }

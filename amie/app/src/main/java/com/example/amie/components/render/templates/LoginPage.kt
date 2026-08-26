@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -49,6 +50,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.amie.R
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
@@ -108,7 +111,7 @@ class SessionModel {
 
     suspend fun login(username: String = "", password: String = ""): Map<String, String> {
         isLoading = true
-        val hostIp = "192.168.1.103"
+        val hostIp = "192.168.1.114"
         
         println("DEBUG: Testing internet connectivity via google.com...")
         try {
@@ -172,7 +175,7 @@ class SessionModel {
     suspend fun handleLoginError(errorMessage: String?) {
         lastErrorMessage = errorMessage
         dialogResponse = true
-        val hostIp = "192.168.1.103"
+        val hostIp = "192.168.1.114"
         
         try {
             val tweakResponse = client.post("http://$hostIp:8080/handle-login-error") {
@@ -257,9 +260,17 @@ fun LoginPage(onLoginSuccess: (String) -> Unit) {
 
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF222222))) {
+        Image(
+            painter = painterResource(id = R.drawable.smileimg),
+            contentDescription = "Smile Image",
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 20.dp)
+                .size(100.dp)
+        )
         Text(
             text = "AMIE",
-            modifier = Modifier.align(Alignment.TopCenter).offset(y = (70).dp),
+            modifier = Modifier.align(Alignment.TopCenter).offset(y = (140).dp),
             style = TextStyle(
                 color = Color.White,
                 fontSize = 120.sp,
