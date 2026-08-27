@@ -32,7 +32,7 @@ private object ExplorerCache {
 @NoLiveLiterals
 @Page("/")
 @Composable
-fun AboutPaged() {
+fun IndexPage() {
     var text by remember { mutableStateOf("") }
     var loadedPackages by remember { mutableStateOf<List<Json>>(emptyList()) }
     var loggedInUser by remember { mutableStateOf<String?>(null) }
@@ -42,42 +42,54 @@ fun AboutPaged() {
     val ctx = rememberPageContext()
 
     LaunchedEffect(Unit) {
+        println("--- [IndexPage: LaunchedEffect] START ---")
         isLoading = true
-        
+
         val token = window.localStorage.getItem("auth_token")
         if (token != null) {
             try {
+                println("DEBUG: Auth token found in localStorage, validating...")
                 val headers = js("{}")
                 headers["Authorization"] = "Bearer $token"
                 val options = js("{}")
                 options["headers"] = headers
-                
+
                 val response = window.fetch(DASHBOARD_URL, options).await()
+                println("DEBUG: Dashboard auth check status: ${response.status}")
                 if (response.ok) {
                     val text = response.text().await()
                     loggedInUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
+                    println("DEBUG: Logged in user identified as: $loggedInUser")
+                } else if (response.status == 401.toShort()) {
+                    println("INFO: Auth token expired or invalid, clearing.")
+                    window.localStorage.removeItem("auth_token")
+                    loggedInUser = null
                 }
             } catch (e: Exception) {
-                println("Auth check failed in Aboutss: $e")
+                console.error("ERROR: Auth check failed in Index: ${e.message}")
             }
         }
 
         try {
             if (ExplorerCache.packages != null) {
                 loadedPackages = ExplorerCache.packages!!
-                println("DEBUG: Loaded Explorer from cache")
+                println("DEBUG: Loaded Explorer data from cache (${loadedPackages.size} items)")
             } else {
+                println("DEBUG: Fetching package list from $LIST_GITHUB_URL")
                 val response = window.fetch(LIST_GITHUB_URL).await()
+                println("DEBUG: Package list fetch status: ${response.status}")
                 if (response.ok) {
                     val json = response.json().await().unsafeCast<Array<Json>>()
                     loadedPackages = json.toList()
                     ExplorerCache.packages = loadedPackages
+                    println("DEBUG: Package list loaded successfully (${loadedPackages.size} items)")
                 }
             }
         } catch (e: Exception) {
-            println("Connection failed: ${e.message}")
+            console.error("ERROR: Connection failed in Index: ${e.message}")
         } finally {
             isLoading = false
+            println("--- [IndexPage: LaunchedEffect] END ---")
         }
     }
 
@@ -89,23 +101,30 @@ fun AboutPaged() {
                 Text("Package Explorer")
             }
             Div(attrs =
-                Modifier.size(height = 25.px, width = 100.px)
+                Modifier
                     .display(DisplayStyle.Flex).gap(4.px)
                     .flexDirection(FlexDirection.Column)
-                    .backgroundColor(Color.black)
                     .toAttrs()
             ) {
+                if (loggedInUser != null) {
                     Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
-                        onClick { ctx.router.navigateTo("/loginpage"); window.location.reload() }
+                        onClick {
+                            println("DEBUG: Navigating to dashboard for $loggedInUser")
+                            ctx.router.navigateTo("/dashboard?username=$loggedInUser")
+                        }
                     }) {
-                        Text(if (loggedInUser != null) "Logged in as $loggedInUser" else "Login")
+                        Text("Logged in as $loggedInUser")
                     }
-
+                } else {
                     Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
-                        onClick { ctx.router.navigateTo("/register"); window.location.reload() }
+                        onClick {
+                            println("DEBUG: Navigating to login page")
+                            ctx.router.navigateTo("/loginpage")
+                        }
                     }) {
-                        Text(if (loggedInUser != null) "Logged in as $loggedInUser" else "Register")
+                        Text("Login")
                     }
+                }
             }
         }
 
@@ -119,7 +138,7 @@ fun AboutPaged() {
                     .borderRadius(4.px)
                     .border(1.px, LineStyle.Solid, Color.lightgray)
                     .toAttrs {
-                        placeholder("Search for package by name")
+                        placeholder("Search for package by extension (e.g. *py)")
                         value(text)
                         onInput { event ->
                             text = event.value
@@ -131,15 +150,17 @@ fun AboutPaged() {
                 attrs = Modifier.margin(left = 10.px).padding(topBottom = 10.px, leftRight = 20.px).toAttrs {
                     onClick {
                         scope.launch {
+                            println("--- [IndexPage: Search] START ---")
+                            println("DEBUG: Search query: '$text'")
                             isLoading = true
                             try {
                                 val encodedText = js("encodeURIComponent")(text) as String
-
-                                val response = window.fetch("$QUERY_URL$encodedText").await()
-
+                                val searchUrl = "$QUERY_URL$encodedText"
+                                println("DEBUG: Fetching search results from: $searchUrl")
+                                val response = window.fetch(searchUrl).await()
+                                println("DEBUG: Search response status: ${response.status}")
                                 if (response.ok) {
                                     val json = response.json().await()
-                                    
                                     if (js("Array.isArray(json)") as Boolean) {
                                         loadedPackages = (json as Array<Json>).toList()
                                     } else if (json != null) {
@@ -147,13 +168,14 @@ fun AboutPaged() {
                                     } else {
                                         loadedPackages = emptyList()
                                     }
-
                                     ExplorerCache.packages = loadedPackages
+                                    println("DEBUG: Search results updated (${loadedPackages.size} items)")
                                 }
                             } catch (e: Exception) {
-                                println("Search failed: $e")
+                                console.error("ERROR: Search failed: ${e.message}")
                             } finally {
                                 isLoading = false
+                                println("--- [IndexPage: Search] END ---")
                             }
                         }
                     }
@@ -163,14 +185,54 @@ fun AboutPaged() {
             }
         }
 
-        H3 { Text("Available Packages & Authors:") }
-
         if (isLoading) {
             P { Text("Fetching data...") }
         } else {
-            if (loadedPackages.isEmpty()) {
-                P { Text("No items found.") }
-            } else {
+            val authors = loadedPackages.filter { it["type"] == "dir" }
+            val binaries = loadedPackages.filter { it["type"] == "file" }
+
+            if (authors.isNotEmpty()) {
+                H2 { Text("Authors") }
+                Table(
+                    attrs = Modifier
+                        .fillMaxWidth()
+                        .margin(bottom = 40.px)
+                        .border(1.px, LineStyle.Solid, Color.lightgray)
+                        .borderRadius(8.px)
+                        .toAttrs()
+                ) {
+                    Thead {
+                        Tr {
+                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Author") }
+                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) { Text("Actions") }
+                        }
+                    }
+                    Tbody {
+                        for (item in authors) {
+                            val rawName = item["name"] as? String ?: "Unknown"
+                            Tr(attrs = Modifier.borderTop(1.px, LineStyle.Solid, Color.lightgray).toAttrs()) {
+                                Td(attrs = Modifier.padding(12.px).toAttrs()) {
+                                    B { Text("👤 $rawName") }
+                                    Text(" (Author)")
+                                }
+                                Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
+                                    Button(attrs = Modifier.toAttrs {
+                                        onClick {
+                                            println("DEBUG: Navigating to dashboard for author: $rawName")
+                                            ctx.router.navigateTo("/dashboard?username=$rawName")
+                                        }
+                                    }) {
+                                        Text("View Author's Packages")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (binaries.isNotEmpty()) {
+                H2 { Text("Binary Packages") }
                 Table(
                     attrs = Modifier
                         .fillMaxWidth()
@@ -181,25 +243,15 @@ fun AboutPaged() {
                     Thead {
                         Tr {
                             Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Name") }
-                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Category") }
                             Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Size") }
                             Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) { Text("Actions") }
                         }
                     }
                     Tbody {
-                        for (item in loadedPackages) {
+                        for (item in binaries) {
                             val rawName = item["name"] as? String ?: "Unknown"
-                            val type = item["type"] as? String ?: "file"
-                            val isDir = type == "dir"
-                            
-                            val name = if (isDir) "👤 $rawName (Author)" else "📄 $rawName"
-                            val category = if (isDir) "User Repository" else "Binary Package"
-                            
                             val path = item["path"] as? String ?: ""
-                            val owner = if (isDir) rawName else {
-                                // Extract owner from path like uploads/username/...
-                                path.substringAfter("uploads/").substringBefore("/")
-                            }
+                            val owner = path.substringAfter("uploads/").substringBefore("/")
 
                             val sizeInBytes = (item["size"] as? Number)?.toDouble() ?: 0.0
                             val sizeDisplay = if (sizeInBytes > 0) {
@@ -211,61 +263,31 @@ fun AboutPaged() {
                             } else "-"
 
                             Tr(attrs = Modifier.borderTop(1.px, LineStyle.Solid, Color.lightgray).toAttrs()) {
-                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(name) }
-                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(category) }
+                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text("📄 $rawName") }
                                 Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(sizeDisplay) }
                                 Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
-                                    if (isDir) {
-                                        Button(attrs = Modifier.margin(right = 5.px).toAttrs {
-                                            onClick {
-                                                ctx.router.navigateTo("/dashboard?username=$rawName")
-                                            }
-                                        }) {
-                                            Text("View Author's Packages")
-                                        }
-                                    } else {
-                                        val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
-                                        if (downloadUrl.isNotEmpty()) {
-                                            A(href = downloadUrl, attrs = Modifier.margin(right = 5.px).toAttrs()) {
-                                                Button { Text("Download") }
-                                            }
-                                        } else {
-                                            Text("N/A")
-                                        }
-                                        
-                                        Button(
-                                            attrs = Modifier.margin(right = 5.px).toAttrs({
-                                                onClick {
-                                                    ctx.router.navigateTo("/view?package=$path&username=$owner&from=aboutss")
-                                                }
-                                            })
-                                        ) { Text("View") }
-                                    }
+                                    val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
                                     
-                                    if (owner == loggedInUser && !isDir) {
-                                        Button(
-                                            attrs = Modifier.margin(right = 5.px).toAttrs({
-                                                onClick {
-                                                    ctx.router.navigateTo("/edit?package=$path&username=$owner")
-                                                }
-                                            })
-                                        ) { Text("Edit") }
-                                        
-                                        Button(
-                                            attrs = Modifier.toAttrs({
-                                                onClick {
-                                                    scope.launch {
-                                                        try {
-                                                            window.api.get("delete-package?package=$path&username=$owner")
-                                                            ExplorerCache.packages = null // Invalidate cache
-                                                            window.location.reload()
-                                                        } catch(e: Exception) {
-                                                            println("Delete failed: $e")
-                                                        } 
-                                                    }
-                                                }
-                                            })
-                                        ) { Text("Delete") }
+                                    Button(
+                                        attrs = Modifier.margin(right = 5.px).toAttrs({
+                                            onClick {
+                                                val encodedPath = js("encodeURIComponent")(path) as String
+                                                val encodedUrl = if (downloadUrl.isNotEmpty()) js("encodeURIComponent")(downloadUrl) as String else ""
+                                                val viewRoute = "/view?package=$encodedPath&username=$owner&from=aboutss&url=$encodedUrl"
+                                                println("DEBUG: Navigating to View route: $viewRoute")
+                                                ctx.router.navigateTo(viewRoute)
+                                            }
+                                        })
+                                    ) { Text("View") }
+
+                                    if (downloadUrl.isNotEmpty()) {
+                                        A(href = downloadUrl, attrs = Modifier.margin(right = 5.px).toAttrs {
+                                            onClick { println("DEBUG: User clicking Download link for: $downloadUrl") }
+                                        }) {
+                                            Button {
+                                                Text("Download")
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -273,12 +295,17 @@ fun AboutPaged() {
                     }
                 }
             }
+
+            if (authors.isEmpty() && binaries.isEmpty()) {
+                P { Text("No items found.") }
+            }
         }
 
         Button(
-            attrs = Modifier.margin(top = 20.px).toAttrs {
+            attrs = Modifier.margin(top = 40.px).toAttrs {
                 onClick {
-                    ctx.router.navigateTo("/navigateto"); window.location.reload()
+                    println("DEBUG: Navigating to Upload page")
+                    ctx.router.navigateTo("/navigateto")
                 }
             }
         ) {

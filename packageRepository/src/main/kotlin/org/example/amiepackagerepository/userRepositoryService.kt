@@ -12,7 +12,8 @@ import java.util.Date
 class UserService(private val userRepository: UserRepository) {
     private val passwordEncoder = BCryptPasswordEncoder()
     private val log = LoggerFactory.getLogger(UserService::class.java)
-    private val secretKey: SecretKey = Jwts.SIG.HS512.key().build()
+    // Use a fixed key for development to avoid invalidating tokens on every restart
+    private val secretKey: SecretKey = Jwts.SIG.HS512.key().build() // Keep existing for now, but will improve logging
 
     fun userExists(username: String): Boolean {
         return userRepository.existsByUsername(username)

@@ -48,17 +48,21 @@ class SimpleController(
 	 */
 	@GetMapping("/list-disk")
 	fun getFiles(): String {
-		return simpleService.listFiles(driveService)
+		logger.info("--- [GET /list-disk] START ---")
+		return simpleService.listFiles(driveService).also { logger.info("--- [GET /list-disk] END ---") }
 	}
 
 	@GetMapping("/fetch-endpoints")
 	fun fetchEndpoints(): Map<String, String>? {
-		return simpleService.fetchEndpoints()
+		logger.info("--- [GET /fetch-endpoints] START ---")
+		return simpleService.fetchEndpoints().also { logger.info("--- [GET /fetch-endpoints] END ---") }
 	}
 
 	@PostMapping("/post-endpoints")
 	fun postEndpoints() {
+		logger.info("--- [POST /post-endpoints] START ---")
 		simpleService.postEndpoints()
+		logger.info("--- [POST /post-endpoints] END ---")
 	}
 
 	/**
@@ -67,7 +71,8 @@ class SimpleController(
 	 */
 	@GetMapping("/list-github")
 	fun getGithubFiles(): List<GithubItem> {
-		return simpleService.listFilesGithub()
+		logger.info("--- [GET /list-github] START ---")
+		return simpleService.listFilesGithub().also { logger.info("--- [GET /list-github] END ---") }
 	}
 
 	/**
@@ -76,7 +81,7 @@ class SimpleController(
 	 */
 	@GetMapping("/download")
 	fun downloadFile(@RequestParam fileName: String = "welcome-message"): String {
-
+		logger.info("--- [GET /download] START (fileName: {}) ---", fileName)
 		val userHome = System.getProperty("user.home")
 		val destinationFile = File(userHome, "Downloads/amiePackagesDownload/$fileName")
 
@@ -84,7 +89,10 @@ class SimpleController(
 			simpleService.downloadFile(driveService, fileName, destinationFile)
 			"Success! File downloaded to ${destinationFile.absolutePath}"
 		} catch (e: Exception) {
+			logger.error("Download Error: {}", e.message)
 			"Failed to download file: ${e.message}"
+		} finally {
+			logger.info("--- [GET /download] END ---")
 		}
 	}
 
@@ -95,7 +103,7 @@ class SimpleController(
 		@RequestParam("username") username: String,
 		@RequestHeader("Authorization") authHeader: String
 	): String {
-		logger.info("CONTROLLER: Received upload request for user '{}', file '{}', language '{}'", username, file.originalFilename, progLanguage)
+		logger.info("--- [POST /upload] START (user: {}, file: {}, lang: {}) ---", username, file.originalFilename, progLanguage)
 		val token = authHeader.removePrefix("Bearer ")
 		val claims = userService.validateToken(token) ?: run {
 			logger.warn("CONTROLLER: Unauthorized upload attempt for user '{}'", username)
@@ -117,6 +125,8 @@ class SimpleController(
 		} catch (e: Exception) {
 			logger.error("CONTROLLER: Unexpected error during upload: {}", e.message, e)
 			"Error uploading file: ${e.message}"
+		} finally {
+			logger.info("--- [POST /upload] END ---")
 		}
 	}
 
@@ -124,9 +134,7 @@ class SimpleController(
 	suspend fun updateDeviceStatus(
 		@RequestBody deviceUpdateDto: sendDeviceStatusDto
 	){
-		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
-		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
-		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		logger.info("--- [POST /update-device-status] START (user: {}) ---", deviceUpdateDto.username)
 		println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
 		logger.info("Received device update request for user: ${deviceUpdateDto.username}")
 
@@ -136,17 +144,17 @@ class SimpleController(
 		if (response.statusCode == HttpStatus.OK){
 			logger.info("Device update successful for user: ${deviceUpdateDto.username}")
 		} else {
-			logger.error("Device update failed for user: ${deviceUpdateDto.username} \n Response: ${response.body} \n -with status code: ${response.statusCode} \n params: ${deviceUpdateDto}")
+			logger.error("Device update failed for user: ${deviceUpdateDto.username} \n Response: ${response.body} \n -with status code: ${response.statusCode}")
 		}
+		logger.info("--- [POST /update-device-status] END ---")
 	}
+
 	@OptIn(ExperimentalEncodingApi::class)
 	@PostMapping("/get-device-status")
 	suspend fun getDeviceStatus(
 		@RequestBody deviceUpdateDto: sendDeviceStatusDto
 	): Map<String, DeviceDto>? {
-		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
-		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
-		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+		logger.info("--- [POST /get-device-status] START (user: {}) ---", deviceUpdateDto.username)
 		println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
 		logger.info("Received device update request for user: ${deviceUpdateDto.username}")
 
@@ -179,15 +187,18 @@ class SimpleController(
 			println("[RESPONSE][][][][][][][][][][][][][][][][][][][][][][][][][][][][END]")
 			println("[DECOD][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
 			println(decod)
+			logger.info("--- [POST /get-device-status] END ---")
 			return decod
 		} else {
-			logger.error("Device update failed for user: ${deviceUpdateDto.username} \n Response: ${response.body} \n -with status code: ${response.statusCode} \n params: ${deviceUpdateDto}")
+			logger.error("Device update failed for user: ${deviceUpdateDto.username} \n Response: ${response.body} \n -with status code: ${response.statusCode}")
+			logger.info("--- [POST /get-device-status] END ---")
 			return emptyMap()
 		}
 	}
 
 	@GetMapping("list-github-metadata")
 	fun listGithubMetadata(): Map<String, GithubItemMetadata> {
+		logger.info("--- [GET /list-github-metadata] START ---")
 		val githubItems = simpleService.listFilesGithub()
 		return githubItems.mapIndexed { index, item ->
 			index.toString() to GithubItemMetadata(
@@ -197,7 +208,7 @@ class SimpleController(
 				type = item.type,
 				endComp = item.name.endsWith(".c").toString()
 			)
-		}.toMap()
+		}.toMap().also { logger.info("--- [GET /list-github-metadata] END ---") }
 	}
 
 	@PostMapping("/edit")
@@ -207,6 +218,7 @@ class SimpleController(
 		@RequestParam("username") username: String,
 		@RequestHeader("Authorization") authHeader: String
 	): String {
+		logger.info("--- [POST /edit] START (user: {}, file: {}) ---", username, fileName)
 		val token = authHeader.removePrefix("Bearer ")
 		val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
 		if (claims.subject != username) throw ResponseStatusException(HttpStatus.FORBIDDEN)
@@ -215,18 +227,23 @@ class SimpleController(
 			simpleService.sendEdit(username, fileName, file)
 			"File updated successfully"
 		} catch (e: Exception) {
+			logger.error("Edit Error: {}", e.message)
 			"Error updating file: ${e.message}"
+		} finally {
+			logger.info("--- [POST /edit] END ---")
 		}
 	}
 
 	@GetMapping("/query")
 	fun queryFiles(@RequestParam query: String): Any {
-		return simpleService.queryFilesGithub(query) ?: emptyList<Any>()
+		logger.info("--- [GET /query] START (query: {}) ---", query)
+		return simpleService.queryFilesGithub(query) ?: emptyList<Any>().also { logger.info("--- [GET /query] END ---") }
 	}
 
 	@GetMapping("/user-packages")
 	fun getUserPackages(@RequestParam username: String): List<GithubContentResponse> {
-		return simpleService.listUserPackages(username)
+		logger.info("--- [GET /user-packages] START (user: {}) ---", username)
+		return simpleService.listUserPackages(username).also { logger.info("--- [GET /user-packages] END ---") }
 	}
 
 	@PostMapping("/device-repository-controller")
@@ -234,6 +251,7 @@ class SimpleController(
 	                               @RequestParam username: String = "",
 	                               @RequestBody deviceMap: Map<String, DeviceDto>
 	): CompletableFuture<ResponseEntity<String>> {
+		logger.info("--- [POST /device-repository-controller] START (action: {}, user: {}) ---", action, username)
         println("DEBUG: Received device repository request: action=$action, username=$username, devices=${deviceMap.size}")
 
 		return deviceService.repositoryDeviceController(action, username, deviceMap).exceptionally { ex ->
@@ -257,28 +275,34 @@ class SimpleController(
                 else -> cause.message ?: "An unexpected error occurred"
             }
 
+			logger.error("Device Repository Action Failed: {}", errorMessage)
 			ResponseEntity.status(status).body("Action Failed: $errorMessage")
-		}
+		}.also { logger.info("--- [POST /device-repository-controller] END ---") }
 	}
 
 	@PostMapping("/register")
 	fun register(@RequestBody registerRequest: Map<String, String>): String {
 		val username = registerRequest["username"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Username required")
+		logger.info("--- [POST /register] START (user: {}) ---", username)
 		val password = registerRequest["password"] ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Password required")
 
 		if (userService.userExists(username)) {
+			logger.warn("Register Failed: Username '{}' already exists", username)
 			throw ResponseStatusException(HttpStatus.CONFLICT, "Username is already assigned to different account")
 		}
 
 		userService.createUser(username, password)
 		simpleService.createUserDashboard(username = username)
 
+		logger.info("User registered successfully: {}", username)
+		logger.info("--- [POST /register] END ---")
 		return "User registered successfully"
 	}
 
 	@PostMapping("/login")
 	fun login(@RequestBody loginRequest: Map<String, String>): Map<String, String> {
 		val username = loginRequest["username"] ?: "guest"
+		logger.info("--- [POST /login] START (user: {}) ---", username)
 		val password = loginRequest["password"] ?: ""
 		
 		println("DEBUG: Login attempt for user: $username")
@@ -288,6 +312,7 @@ class SimpleController(
 				println("GUEST TOKEN GENERATED")
 				userService.grantGuestToken(username)
 			} else {
+				logger.warn("Login Failed: Invalid credentials for '{}'", username)
 				throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials")
 			}
 
@@ -297,10 +322,11 @@ class SimpleController(
 			println("USER TOKEN GENERATED")
 			simpleService.createUserDashboard(username = username)
 		} catch (e: Exception) {
-			println("DEBUG: Dashboard creation non-fatal error: ${e.message}")
+			logger.error("Dashboard creation non-fatal error: {}", e.message)
 		}
 		
 		println("DEBUG: Returning token for $username")
+		logger.info("--- [POST /login] END ---")
         return mapOf("token" to token)
 	}
 
@@ -308,23 +334,31 @@ class SimpleController(
 	fun handleError(@RequestBody request: Map<String, String>) {
         val error = request["error"] ?: "Unknown"
         val username = request["username"] ?: "unknown"
+		logger.info("--- [POST /handle-login-error] (user: {}, error: {}) ---", username, error)
 		simpleService.writeError(username, "LoginError", error)
 	}
 
 	@GetMapping("/dashboard")
 	fun validateToken(@RequestHeader("Authorization") authHeader: String): String {
+		logger.info("--- [GET /dashboard] START ---")
 		val token = authHeader.removePrefix("Bearer ")
 
 		val claims = userService.validateToken(token) 
-            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized or expired token")
+            ?: run {
+				logger.warn("Token validation failed")
+				throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized or expired token")
+			}
 		val username = claims.subject
 		val userId = (claims["userId"] as? Number)?.toLong() ?: -1L
 
+		logger.info("Dashboard validation successful for user: {} (ID: {})", username, userId)
+		logger.info("--- [GET /dashboard] END ---")
 		return "Welcome to your dashboard, $username (ID: $userId)!"
 	}
 
 	@DeleteMapping("/user")
 	fun deleteUser(@RequestParam username: String, @RequestParam password: String) {
+		logger.info("--- [DELETE /user] (user: {}) ---", username)
 		userService.deleteUser(username, password)
 	}
 
@@ -333,12 +367,14 @@ class SimpleController(
         @RequestParam username: String,
         @RequestBody deviceMap: Map<String, DeviceDto>
     ): String {
+		logger.info("--- [POST /device-status] (user: {}) ---", username)
         deviceService.saveDeviceStatuses(username, deviceMap)
         return "Device statuses saved successfully"
     }
 
     @GetMapping("/device-status")
     fun getDeviceStatus(@RequestParam username: String): List<DeviceStatus> {
+		logger.info("--- [GET /device-status] (user: {}) ---", username)
         return deviceService.getDeviceStatuses(username)
     }
 }

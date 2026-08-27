@@ -76,6 +76,7 @@ fun EditPage() {
 
                         val file = evt.dataTransfer?.files?.item(0) as? File
                         if (file != null) {
+                            println("DEBUG: File dropped for edit: ${file.name} (Size: ${file.size})")
                             selectedFile = file
                             fileName = file.name
                             showPopup = true
@@ -115,6 +116,7 @@ fun EditPage() {
                 attrs = Modifier.margin(top = 20.px).toAttrs {
                     onClick {
                         scope.launch {
+                            println("--- [EditPage: Submit Update] START ---")
                             uploadStatus = "Updating..."
                             try {
                                 val formData = FormData()
@@ -126,21 +128,29 @@ fun EditPage() {
                                 options["method"] = "POST"
                                 options["body"] = formData
                                 val headers = js("{}")
-                                headers["Authorization"] = "Bearer ${window.localStorage.getItem("auth_token")}"
+                                val token = window.localStorage.getItem("auth_token")
+                                headers["Authorization"] = "Bearer $token"
                                 options["headers"] = headers
 
+                                println("DEBUG: Submitting update for '$packageName' as user '$username'")
                                 val response = window.fetch("http://localhost:8080/edit", options).await()
+                                println("DEBUG: Update response status: ${response.status}")
                                 
                                 if (response.ok) {
                                     val result = response.text().await()
+                                    println("DEBUG: Update success result: $result")
                                     uploadStatus = "Success: $result"
                                     delay(2000)
                                     ctx.router.navigateTo("/dashboard?username=$username")
                                 } else {
+                                    println("ERROR: Update failed: ${response.statusText}")
                                     uploadStatus = "Error: ${response.statusText}"
                                 }
                             } catch (e: Exception) {
+                                console.error("ERROR: Failed to submit update: ${e.message}")
                                 uploadStatus = "Failed: ${e.message}"
+                            } finally {
+                                println("--- [EditPage: Submit Update] END ---")
                             }
                         }
                     }
@@ -159,6 +169,7 @@ fun EditPage() {
         Button(
             attrs = Modifier.margin(top = 10.px).toAttrs {
                 onClick {
+                    println("DEBUG: Cancelling edit, returning to dashboard")
                     ctx.router.navigateTo("/dashboard?username=$username")
                 }
             }

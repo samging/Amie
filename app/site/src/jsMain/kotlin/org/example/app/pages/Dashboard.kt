@@ -51,24 +51,32 @@ fun Dashboard() {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(ctx.route, refreshCounter) {
+        println("--- [Dashboard: LaunchedEffect] START ---")
         username = ctx.route.params["username"] ?: ""
-        val token = window.localStorage.getItem("auth_token")
+        println("DEBUG: Username from route: '$username'")
         
+        val token = window.localStorage.getItem("auth_token")
         if (token != null) {
             try {
+                println("DEBUG: Auth token found, validating...")
                 val headers = js("{}")
                 headers["Authorization"] = "Bearer $token"
                 val options = js("{}")
                 options["headers"] = headers
 
                 val response = window.fetch(DASHBOARD_URL, options).await()
+                println("DEBUG: Dashboard auth check status: ${response.status}")
                 if (response.ok) {
                     val text = response.text().await()
-                    // Extract username from "Welcome to your dashboard, user (ID: 1)!"
                     loggedInUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
+                    println("DEBUG: Logged in user: $loggedInUser")
+                } else if (response.status == 401.toShort()) {
+                    println("INFO: Auth token expired, clearing and redirecting.")
+                    window.localStorage.removeItem("auth_token")
+                    ctx.router.navigateTo("/loginpage")
                 }
             } catch (e: Exception) {
-                println("Auth check failed: $e")
+                console.error("ERROR: Auth check failed: ${e.message}")
             }
         }
 
@@ -76,34 +84,41 @@ fun Dashboard() {
             if (refreshCounter == 0 && DashboardCache.packageData.containsKey(username)) {
                 loadedPackages = DashboardCache.packageData[username] ?: emptyList()
                 deviceStatuses = DashboardCache.deviceData[username] ?: emptyList()
-                println("DEBUG: Loaded from cache for $username")
+                println("DEBUG: Loaded from cache for $username (${loadedPackages.size} packages, ${deviceStatuses.size} devices)")
             } else {
                 isLoading = true
                 try {
                     // 1. Fetch Packages
+                    println("DEBUG: Fetching packages for $username via Kobweb API proxy")
                     val pkgResponse = window.api.get("repo-by-username?username=$username")
                     val pkgText = pkgResponse?.decodeToString() ?: ""
+                    println("DEBUG: Package Response Length: ${pkgText.length}")
                     if (pkgText.isNotEmpty()) {
                         val json = JSON.parse<dynamic>(pkgText)
                         loadedPackages = if (js("Array.isArray(json)") as Boolean) (json as Array<Json>).toList() else listOf(json as Json)
                         DashboardCache.packageData = DashboardCache.packageData.toMutableMap().apply { put(username, loadedPackages) }
+                        println("DEBUG: Updated loadedPackages (${loadedPackages.size} items)")
                     }
 
                     // 2. Fetch Device Statuses
+                    println("DEBUG: Fetching device statuses for $username")
                     val deviceResponse = window.api.get("get-device-status?username=$username")
                     val deviceText = deviceResponse?.decodeToString() ?: ""
+                    println("DEBUG: Device Response Length: ${deviceText.length}")
                     if (deviceText.isNotEmpty()) {
                         val json = JSON.parse<dynamic>(deviceText)
                         deviceStatuses = if (js("Array.isArray(json)") as Boolean) (json as Array<Json>).toList() else emptyList()
                         DashboardCache.deviceData = DashboardCache.deviceData.toMutableMap().apply { put(username, deviceStatuses) }
+                        println("DEBUG: Updated deviceStatuses (${deviceStatuses.size} items)")
                     }
                 } catch (e: Exception) {
-                    println("Error fetching dashboard data: ${e.message}")
+                    console.error("ERROR: Error fetching dashboard data: ${e.message}")
                 } finally {
                     isLoading = false
                 }
             }
         }
+        println("--- [Dashboard: LaunchedEffect] END ---")
     }
 
     Div(Modifier.padding(24.px).toAttrs()) {
@@ -183,7 +198,13 @@ fun Dashboard() {
                                     Button(
                                         attrs = Modifier.margin(right = 5.px).toAttrs({
                                             onClick {
-                                                ctx.router.navigateTo("/view?package=$path&username=$username&from=dashboard")
+                                                // FULLY encode the path to avoid router issues with slashes
+                                                val encodedPath = js("encodeURIComponent")(path) as String
+                                                val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
+                                                val encodedUrl = if (downloadUrl.isNotEmpty()) js("encodeURIComponent")(downloadUrl) as String else ""
+                                                val viewRoute = "/view?package=$encodedPath&username=$username&from=dashboard&url=$encodedUrl"
+                                                println("DEBUG: Navigating to View route: $viewRoute")
+                                                ctx.router.navigateTo(viewRoute)
                                             }
                                         })
                                     ) { Text("View") }
@@ -192,6 +213,7 @@ fun Dashboard() {
                                         Button(
                                             attrs = Modifier.margin(right = 5.px).toAttrs({
                                                 onClick {
+                                                    println("DEBUG: Navigating to Edit route for path: $path")
                                                     ctx.router.navigateTo("/edit?package=$path&username=$username")
                                                 }
                                             })
@@ -201,20 +223,28 @@ fun Dashboard() {
                                             attrs = Modifier.toAttrs({
                                                 onClick {
                                                     scope.launch {
+                                                        println("--- [Dashboard: Delete] START ---")
                                                         try {
                                                             delResp = "Deleting $name..."
                                                             val token = window.localStorage.getItem("auth_token")
-                                                            val response = window.fetch("$DELETE_PACKAGE_URL?package=$path&username=$username&token=$token").await()
+                                                            val deleteUrl = "$DELETE_PACKAGE_URL?package=$path&username=$username&token=$token"
+                                                            println("DEBUG: Calling Delete API: $deleteUrl")
+                                                            val response = window.fetch(deleteUrl).await()
+                                                            println("DEBUG: Delete response status: ${response.status}")
                                                             if (response.ok) {
                                                                 DashboardCache.clear(username)
                                                                 delResp = "Successfully deleted $name"
                                                                 refreshCounter++
+                                                                println("DEBUG: Deletion successful, refreshCounter incremented")
                                                             } else {
                                                                 delResp = "Failed to delete: ${response.statusText}"
                                                             }
                                                         } catch(e: Exception) {
+                                                            console.error("ERROR: Failed to delete package: ${e.message}")
                                                             delResp = "Failed to delete package: ${e.message}"
-                                                        } 
+                                                        } finally {
+                                                            println("--- [Dashboard: Delete] END ---")
+                                                        }
                                                     }
                                                 }
                                             })
@@ -230,6 +260,7 @@ fun Dashboard() {
         
         Button(attrs = Modifier.margin(top = 20.px).toAttrs({
             onClick {
+                println("DEBUG: Navigating to Upload page for $username")
                 ctx.router.navigateTo("$NAVIGATE_TO_UPLOAD$username")
             }
         })) {

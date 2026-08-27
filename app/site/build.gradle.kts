@@ -1,4 +1,5 @@
 import com.varabyte.kobweb.gradle.application.util.configAsKobwebApplication
+import kotlinx.html.link
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -15,6 +16,9 @@ kobweb {
     app {
         index {
             description.set("Powered by Kobweb")
+            head.add {
+                link(rel = "stylesheet", href = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css")
+            }
         }
     }
 }
@@ -37,6 +41,7 @@ kotlin {
             implementation(libs.kobweb.silk)
             implementation(libs.kobwebx.markdown)
             implementation(libs.kotlinx.serialization.json)
+            implementation(npm("highlight.js", "11.9.0"))
         }
 
         // Uncomment this block so backend code (`jvmMain`) is recognized:

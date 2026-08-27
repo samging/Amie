@@ -70,6 +70,7 @@ data class GithubSearchResponse(
 	val items: List<GithubSearchItem>
 )
 
+@Serializable
 data class GithubContentResponse(
 	val name: String,
 	val path: String,
@@ -118,12 +119,13 @@ class SimpleService {
 		.build()
 
 	fun listFilesGithub(): List<GithubItem> {
+		logger.info("--- [SimpleService: listFilesGithub] START ---")
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		if (githubToken != null) {
 			val safeToken = if (githubToken.length > 8) "${githubToken.take(4)}...${githubToken.takeLast(4)}" else "****"
-			println("DEBUG: Using GITHUB_TOKEN (Length: ${githubToken.length}): $safeToken")
+			logger.info("Using GITHUB_TOKEN (Length: {}): {}", githubToken.length, safeToken)
 		} else {
-			println("DEBUG: GITHUB_TOKEN is NULL in environment")
+			logger.warn("GITHUB_TOKEN is NULL in environment")
 		}
 
 		val repoOwner = "samging"
@@ -132,6 +134,7 @@ class SimpleService {
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
 
 		return try {
+			logger.info("Calling GitHub contents API: {}", url)
 			val response = restClient.get()
 				.uri(url)
 				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
@@ -139,11 +142,12 @@ class SimpleService {
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.retrieve()
 				.onStatus({ it.value() == 404 }, { _, _ -> 
-					// Handle 404 as empty directory
+					logger.warn("GitHub path not found (404): {}", path)
 					throw IOException("Directory not found (likely empty)")
 				})
 				.body(object : ParameterizedTypeReference<List<GithubContentResponse>>() {})
 
+			logger.info("GitHub API response success, found {} items", response?.size ?: 0)
 			response?.map {
 				GithubItem(
 					name = it.name,
@@ -152,11 +156,13 @@ class SimpleService {
 				)
 			} ?: emptyList()
 		} catch (e: FileNotFoundException) {
-			println("GitHub: Path '$path' not found. This usually means the folder is empty.")
+			logger.info("GitHub: Path '{}' not found. This usually means the folder is empty.", path)
 			emptyList()
 		} catch (e: Exception) {
-			println("GitHub List Error: ${e.message}")
+			logger.error("GitHub List Error: {}", e.message)
 			emptyList()
+		} finally {
+			logger.info("--- [SimpleService: listFilesGithub] END ---")
 		}
 	}
 
@@ -164,6 +170,7 @@ class SimpleService {
 	 * Recursively lists all files in a user's upload directory.
 	 */
 	fun listUserPackages(username: String): List<GithubContentResponse> {
+		logger.info("--- [SimpleService: listUserPackages] START (user: {}) ---", username)
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
@@ -172,6 +179,7 @@ class SimpleService {
 		val allFiles = mutableListOf<GithubContentResponse>()
 		
 		fun walk(path: String) {
+			logger.info("Walking GitHub path: {}", path)
 			val encodedPath = path.split("/").joinToString("/") { 
 				java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") 
 			}
@@ -185,6 +193,7 @@ class SimpleService {
 					.retrieve()
 					.body(object : ParameterizedTypeReference<List<GithubContentResponse>>() {})
 				
+				logger.info("Walked path '{}' successfully, found {} items", path, response?.size ?: 0)
 				response?.forEach { item ->
 					if (item.type == "dir") {
 						walk(item.path)
@@ -193,21 +202,66 @@ class SimpleService {
 					}
 				}
 			} catch (e: Exception) {
-				println("DEBUG: Error walking path $path: ${e.message}")
+				logger.error("Error walking path {}: {}", path, e.message)
 			}
 		}
 		
 		walk(rootPath)
+		logger.info("Finished walk, total files found: {}", allFiles.size)
+		logger.info("--- [SimpleService: listUserPackages] END ---")
 		return allFiles
 	}
 
-	fun queryFilesGithub(query: String = ""): GithubContentResponse? {
+	fun queryFilesGithub(query: String = ""): Any? {
+		logger.info("--- [SimpleService: queryFilesGithub] START (query: {}) ---", query)
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
-		val path = "uploads"
 
-		// Parse the query string (e.g., "essay1.pdf") into name and extension
+		// --- NEW: Extension-based Search (*ext) ---
+		if (query.trim().startsWith("*")) {
+			val extension = query.trim().removePrefix("*").lowercase()
+			logger.info("GITHUB: Performing extension-based search for '.{}'", extension)
+			
+			val dirTreeUrl = "https://api.github.com/repos/$repoOwner/$repoName/contents/uploads/searchables.json"
+			return try {
+				logger.info("Fetching searchables.json from: {}", dirTreeUrl)
+				val response = restClient.get()
+					.uri(dirTreeUrl)
+					.header("Authorization", "Bearer ${githubToken ?: ""}")
+					.retrieve()
+					.body(GithubContentResponse::class.java)
+				
+				val encodedContent = response?.content?.replace("\n", "")?.replace("\r", "") ?: ""
+				val decodedContent = String(Base64.getDecoder().decode(encodedContent))
+				
+				val allSearchables = try {
+					json.decodeFromString<List<GithubSearchable>>(decodedContent)
+				} catch (e: Exception) {
+					listOf(json.decodeFromString<GithubSearchable>(decodedContent))
+				}
+
+				val matches = allSearchables.filter { it.lang.lowercase() == extension || it.url.lowercase().endsWith(".$extension") }
+				logger.info("GITHUB: Found {} matches for '.{}'", matches.size, extension)
+				
+				// Map matches to a format Frontend Index.kt Table expects
+				matches.map { 
+					mapOf(
+						"name" to it.url.substringAfterLast("/"),
+						"path" to it.url.substringAfter("repos/$repoOwner/$repoName/contents/"),
+						"type" to "file",
+						"download_url" to it.url.replace("api.github.com/repos", "raw.githubusercontent.com").replace("/contents/", "/main/"),
+						"size" to 0
+					)
+				}.also { logger.info("--- [SimpleService: queryFilesGithub] END (Success) ---") }
+			} catch (e: Exception) {
+				logger.error("GITHUB: Extension search failed: {}", e.message)
+				emptyList<Any>()
+			}
+		}
+
+		// --- Existing Logic: Specific File Search ---
+		val path = "uploads"
 		val fileParts = query.trim().split(".")
 		val fileName = fileParts.getOrNull(0)?.takeIf { it.isNotBlank() } ?: "essay1"
 		val fileExtension = fileParts.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "pdf"
@@ -219,12 +273,10 @@ class SimpleService {
 			java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") 
 		}
 
-		// GitHub Contents API URL for a specific file path
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
-		println("Generated URL: $url")
+		logger.info("Generated GitHub API URL for specific file: {}", url)
 
 		return try {
-			// Since we are targeting a single file, we can map to a DTO or a generic Map/Json node
 			val responseEntity = restClient
 				.get()
 				.uri(url)
@@ -234,21 +286,13 @@ class SimpleService {
 				.retrieve()
 				.toEntity(GithubContentResponse::class.java)
 
-			val fileInfo = responseEntity.body
-			if (fileInfo != null) {
-				println("File found: ${fileInfo.path} -> ${fileInfo.htmlUrl}")
-				println("Download URL: ${fileInfo.downloadUrl}")
-			}
-
-			when (responseEntity.statusCode.value()) {
-				200 -> println("Ok")
-				401 -> println("Unauthorized")
-				else -> println("Unexpected status: ${responseEntity.statusCode}")
-			}
-			fileInfo
+			logger.info("Specific file search success for path: {}", targetPath)
+			responseEntity.body
 		} catch (e: Exception) {
-			println("Error: ${e.message} (File may not exist or path is invalid)")
+			logger.warn("Specific file search failed for path {}: {}", targetPath, e.message)
 			null
+		} finally {
+			logger.info("--- [SimpleService: queryFilesGithub] END ---")
 		}
 	}
 
@@ -259,6 +303,7 @@ class SimpleService {
 	 * @return A newline-separated string listing the available file names, or a structural
 	 */
 	fun listFiles(driveService: Drive): String {
+		logger.info("Listing Google Drive files...")
 		val result: FileList = driveService.files().list()
 			.setPageSize(10)
 			.setFields("nextPageToken, files(id, name)")
@@ -269,17 +314,20 @@ class SimpleService {
 		val files: List<DriveFile>? = result.files
 
 		if (files.isNullOrEmpty()) {
-			return "Is null or empty. ${files.toString()}"
+			logger.info("No Google Drive files found.")
+			return "Is null or empty."
 		}
 		val fileListString = StringBuilder("Available Files: \n")
 			for (file in files) {
 				fileListString.append(file.name).append("\n")
 			}
+		logger.info("Found {} files in Google Drive", files.size)
 		return fileListString.toString()
 	}
 
 	fun createUserDashboard(rootRepo: String = "codeRepository", username: String) {
 		if (username.isEmpty()) return
+		logger.info("--- [SimpleService: createUserDashboard] START (user: {}) ---", username)
 
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
@@ -292,6 +340,7 @@ class SimpleService {
 
 		CompletableFuture.runAsync {
 			try {
+				logger.info("Checking if dashboard already exists for user '{}' at {}", username, url)
 				val checkResponse = restClient.get()
 					.uri(url)
 					.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
@@ -302,11 +351,11 @@ class SimpleService {
 					.toEntity(String::class.java)
 
 				if (checkResponse.statusCode.is2xxSuccessful) {
-					println("DEBUG: Dashboard for $username already exists. Skipping.")
+					logger.info("Dashboard for user '{}' already exists. Skipping creation.", username)
 					return@runAsync
 				}
 			} catch (e: Exception) {
-				// 404 is expected here for new users
+				logger.info("Dashboard not found for user '{}' (expected for new users)", username)
 			}
 
 			val contentBase64 = Base64.getEncoder().encodeToString("# Dashboard for $username".toByteArray())
@@ -316,6 +365,7 @@ class SimpleService {
 			)
 
 			try {
+				logger.info("Creating dashboard README.md for user '{}' on GitHub...", username)
 				restClient.put()
 					.uri(url)
 					.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
@@ -325,9 +375,11 @@ class SimpleService {
 					.retrieve()
 					.toBodilessEntity()
 
-				println("GitHub User Dashboard Created Successfully for $username!")
+				logger.info("GitHub User Dashboard Created Successfully for {}!", username)
 			} catch (e: Exception) {
-				println("DEBUG: GitHub dashboard creation failed: ${e.message}")
+				logger.error("GitHub dashboard creation failed for user '{}': {}", username, e.message)
+			} finally {
+				logger.info("--- [SimpleService: createUserDashboard] ASYNC END ---")
 			}
 		}
 	}
@@ -338,6 +390,7 @@ class SimpleService {
 			logger.error("GITHUB_TOKEN is missing. Cannot post endpoints.")
 			return
 		}
+		logger.info("--- [SimpleService: postEndpoints] START ---")
 
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
@@ -354,7 +407,7 @@ class SimpleService {
 
 		try {
 			if (!file.exists()) {
-				logger.error("endpoints.json not found")
+				logger.error("endpoints.json not found locally")
 				return
 			}
 			val contentBase64 = Base64.getEncoder().encodeToString(file.readBytes())
@@ -367,6 +420,7 @@ class SimpleService {
 
 			if (existingSha != null) body["sha"] = existingSha
 
+			logger.info("Uploading endpoints.json to GitHub...")
 			restClient.put()
 				.uri(url)
 				.header("Authorization", "Bearer $githubToken")
@@ -378,11 +432,14 @@ class SimpleService {
 			
 			logger.info("Endpoints uploaded successfully to GitHub")
 		} catch (e: Exception) {
-			logger.error("GitHub API error: ${e.message}")
+			logger.error("GitHub API error while posting endpoints: {}", e.message)
+		} finally {
+			logger.info("--- [SimpleService: postEndpoints] END ---")
 		}
 	}
 
 	fun fetchEndpoints(): Map<String, String> {
+		logger.info("--- [SimpleService: fetchEndpoints] START ---")
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
@@ -390,6 +447,7 @@ class SimpleService {
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
 
 		try {
+			logger.info("Fetching endpoints from GitHub: {}", url)
 			val response = restClient.get()
 				.uri(url)
 				.header("Authorization", "Bearer ${githubToken ?: ""}")
@@ -404,19 +462,22 @@ class SimpleService {
 			// Use the class-level 'json' (Kotlinx Serialization) to handle @SerialName
 			return try {
 				val list = json.decodeFromString<List<EndpointDto>>(decodedContent)
+				logger.info("Successfully parsed {} endpoints", list.size)
 				list.associate { it.retailName to it.descriptiveName }
 			} catch (e: Exception) {
-				logger.warn("Failed to parse as List<EndpointDto>, trying Map<String, String>: ${e.message}")
+				logger.warn("Failed to parse as List<EndpointDto>, trying Map<String, String>: {}", e.message)
 				try {
-					json.decodeFromString<Map<String, String>>(decodedContent)
+					json.decodeFromString<Map<String, String>>(decodedContent).also { logger.info("Parsed as Map with {} items", it.size) }
 				} catch (e2: Exception) {
-					logger.error("Failed to parse endpoints JSON: ${e2.message}")
+					logger.error("Failed to parse endpoints JSON: {}", e2.message)
 					emptyMap()
 				}
 			}
 		} catch (e: Exception) {
-			logger.error("Error fetching endpoints: ${e.message}")
+			logger.error("Error fetching endpoints: {}", e.message)
 			return emptyMap()
+		} finally {
+			logger.info("--- [SimpleService: fetchEndpoints] END ---")
 		}
 	}
 
@@ -429,6 +490,7 @@ class SimpleService {
 	 * @throws IOException If the file does not exist on Google Drive, or if a local I/O error occurs.
 	 */
 	fun downloadFile(driveService: Drive, fileName: String, savePath: File) {
+		logger.info("Downloading file '{}' from Google Drive to {}", fileName, savePath.absolutePath)
 		val outputStream: OutputStream = FileOutputStream(savePath)
 
 		val result = driveService.files().list()
@@ -441,20 +503,24 @@ class SimpleService {
 
 		val files = result.files
 		if (files.isNullOrEmpty()) {
+			logger.error("File '{}' not found on Google Drive.", fileName)
 			throw IOException("File not found on Google Drive: $fileName")
 		}
 		val fileId = files[0].id
+		logger.info("Found fileId: {} for fileName: {}", fileId, fileName)
 
 		FileOutputStream(savePath).use { stream ->
 			driveService.files().get(fileId)
 				.executeAndDownloadTo(stream)
 		}
 		outputStream.close()
+		logger.info("File '{}' downloaded successfully.", fileName)
 	}
 
 	fun uploadFile(username: String,
 				   progLanguage: String,
 				   file: MultipartFile) {
+		logger.info("--- [SimpleService: uploadFile] START (user: {}, lang: {}, file: {}) ---", username, progLanguage, file.originalFilename)
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		
 		val repoOwner = "samging"
@@ -469,7 +535,6 @@ class SimpleService {
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
 		val contentBase64 = Base64.getEncoder().encodeToString(file.bytes)
 
-		// --- SHA Supplier: Isolated retrieval of existing file's SHA ---
 		var existingSha: String? = null
 		try {
 			logger.info("GITHUB: Checking for existing file to get SHA at path: {}", path)
@@ -479,81 +544,118 @@ class SimpleService {
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.retrieve()
-				.body(GithubContentResponse::class.java)
-			
-			existingSha = checkResponse?.sha
+				.onStatus({ it.value() == 404 }, { _, _ -> /* Expected if new file */ })
+				.toEntity(GithubContentResponse::class.java)
+
+			existingSha = checkResponse.body?.sha
 			if (existingSha != null) {
 				logger.info("GITHUB: File exists, retrieved SHA: {}", existingSha)
 			}
+		} catch (e: Exception) {
+			logger.info("GITHUB: Initial file check info (not necessarily an error): {}", e.message)
+		}
 
-			val dirTreeUrl: String = "https://api.github.com/repos/$repoOwner/$repoName/contents/uploads/searchables.json"
-			
-			fun patchSearchTree(body: String, sha: String? = null): ResponseEntity<GithubContentResponse> {
-				logger.info("GITHUB: Attempting to update search tree at {}", dirTreeUrl)
-				val searchBody = mutableMapOf(
-					"message" to "Update searchables for $path",
-					"content" to Base64.getEncoder().encodeToString(body.toByteArray())
-				)
-				if (sha != null) searchBody["sha"] = sha
+		try {
+				val dirTreeUrl: String = "https://api.github.com/repos/$repoOwner/$repoName/contents/uploads/searchables.json"
 
-				return restClient.put() // Using PUT as per GitHub API for creating/updating
-					.uri(dirTreeUrl)
-					.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
-					.header("Accept", "application/vnd.github+json")
-					.header("X-GitHub-Api-Version", "2022-11-28")
-					.body(searchBody)
-					.retrieve()
-					.toEntity(GithubContentResponse::class.java)
-			}
+				fun patchSearchTree(body: String, sha: String? = null): ResponseEntity<String> {
+					logger.info("GITHUB: Attempting to update search tree at {}", dirTreeUrl)
+					val searchBody = mutableMapOf(
+						"message" to "Update searchables for $path",
+						"content" to Base64.getEncoder().encodeToString(body.toByteArray())
+					)
+					if (sha != null) searchBody["sha"] = sha
 
-			val encodeToBase = Base64.getEncoder().encodeToString(file.bytes)
-			val contentBody = mutableMapOf(
-				"message" to "Update $path via Amie Repository for $username",
-				"content" to encodeToBase
-			)
-
-			fun MutableMap<String, String>.updateJson(updateApply: GithubSearchable?.() -> Unit): String {
-				val dummySearchable = GithubSearchable(url = url, lang = progLanguage)
-				dummySearchable.updateApply()
-				return json.encodeToString(dummySearchable)
-			}
-
-			var searchablesSha: String? = null
-			try {
-				val searchCheck = restClient.get()
-					.uri(dirTreeUrl)
-					.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
-					.header("Accept", "application/vnd.github+json")
-					.header("X-GitHub-Api-Version", "2022-11-28")
-					.retrieve()
-					.body(GithubContentResponse::class.java)
-				searchablesSha = searchCheck?.sha
-				logger.info("GITHUB: Existing searchables.json found, SHA: {}", searchablesSha)
-			} catch (e: Exception) {
-				logger.info("GITHUB: searchables.json not found (will create new)")
-			}
-
-			val patchResponse = patchSearchTree(contentBody.updateJson{}, searchablesSha)
-
-			if (patchResponse.statusCode.is4xxClientError) {
-				val createSearch = restClient.post().uri(dirTreeUrl)
-					.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
-					.header("Accept", "application/vnd.github+json")
-					.header("X-GitHub-Api-Version", "2022-11-28")
-					.body(contentBody).retrieve()
-					.toEntity(GithubContentResponse::class.java)
-
-				if (createSearch.statusCode.is2xxSuccessful) {
-					patchSearchTree(contentBody.updateJson {
-						GithubSearchable(url = url, lang = progLanguage)
-					}, searchablesSha)
+					return restClient.put() // Using PUT as per GitHub API for creating/updating
+						.uri(dirTreeUrl)
+						.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
+						.header("Accept", "application/vnd.github+json")
+						.header("X-GitHub-Api-Version", "2022-11-28")
+						.body(searchBody)
+						.retrieve()
+						.onStatus({ it.is4xxClientError }, { _, _ -> /* Handled via response status */ })
+						.toEntity(String::class.java)
 				}
-			}
+
+				val encodeToBase = Base64.getEncoder().encodeToString(file.bytes)
+				val contentBody = mutableMapOf(
+					"message" to "Update $path via Amie Repository for $username",
+					"content" to encodeToBase
+				)
+
+				fun MutableMap<String, String>.updateJson(existingContentBase64: String?, updateApply: (GithubSearchable.() -> Unit)?): String {
+					val existingList = if (!existingContentBase64.isNullOrBlank()) {
+						try {
+							val decoded = String(Base64.getDecoder().decode(existingContentBase64.replace("\n", "").replace("\r", "")))
+							// Try to parse as list, if it's a single object convert it to list
+							try {
+								json.decodeFromString<List<GithubSearchable>>(decoded).toMutableList()
+							} catch (e: Exception) {
+								listOf(json.decodeFromString<GithubSearchable>(decoded)).toMutableList()
+							}
+						} catch (e: Exception) {
+							logger.warn("GITHUB: Could not parse existing searchables.json, starting fresh list: {}", e.message)
+							mutableListOf<GithubSearchable>()
+						}
+					} else {
+						mutableListOf<GithubSearchable>()
+					}
+
+					val newEntry = GithubSearchable(url = url, lang = progLanguage)
+					updateApply?.invoke(newEntry)
+					
+					// Avoid duplicates if same URL
+					existingList.removeAll { it.url == newEntry.url }
+					existingList.add(newEntry)
+
+					val result = json.encodeToString(existingList)
+					logger.info("GITHUB: Generated updated searchables JSON with {} items", existingList.size)
+					return result
+				}
+
+				var searchablesSha: String? = null
+				var existingContent: String? = null
+				try {
+					val searchCheck = restClient.get()
+						.uri(dirTreeUrl)
+						.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
+						.header("Accept", "application/vnd.github+json")
+						.header("X-GitHub-Api-Version", "2022-11-28")
+						.retrieve()
+						.onStatus({ it.value() == 404 }, { _, _ -> /* Handled */ })
+						.toEntity(GithubContentResponse::class.java)
+					
+					searchablesSha = searchCheck.body?.sha
+					existingContent = searchCheck.body?.content
+					if (searchablesSha != null) logger.info("GITHUB: Existing searchables.json found, SHA: {}", searchablesSha)
+				} catch (e: Exception) {
+					logger.info("GITHUB: searchables.json not found (will create new)")
+				}
+
+				val updatedJson = contentBody.updateJson(existingContent) {}
+				val patchResponse = patchSearchTree(updatedJson, searchablesSha)
+				logger.info("(!)GITHUB: Patch response status: {}", patchResponse.statusCode)
+
+				if (patchResponse.statusCode.value() == 409) {
+					logger.warn("GITHUB: Conflict updating searchables.json. Someone else updated it. Skipping metadata sync for this file.")
+				} else if (patchResponse.statusCode.value() == 404) {
+					logger.info("GITHUB: searchables.json not found, creating new")
+					val createBody = mapOf(
+						"message" to "Create searchables.json",
+						"content" to Base64.getEncoder().encodeToString(updatedJson.toByteArray())
+					)
+					restClient.put().uri(dirTreeUrl)
+						.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
+						.header("Accept", "application/vnd.github+json")
+						.header("X-GitHub-Api-Version", "2022-11-28")
+						.body(createBody).retrieve()
+						.toBodilessEntity()
+				}
+			logger.info("GITHUB: Searchables logic completed successfully")
 		} catch (e: Exception) {
 			logger.warn("GITHUB: Experimental searchables logic failed (non-fatal): {}", e.message)
 		}
 
-		// --- Final Upload Logic ---
 		val body = mutableMapOf(
 			"message" to "Upload $fileName via Amie Repository for $username ($progLanguage)",
 			"content" to contentBase64
@@ -578,24 +680,31 @@ class SimpleService {
 		} catch (e: Exception) {
 			logger.error("GITHUB: CRITICAL upload error at path {}: {}", path, e.message)
 			throw e
+		} finally {
+			logger.info("--- [SimpleService: uploadFile] END ---")
 		}
 	}
 	private fun fetchFileSha(url: String, githubToken: String?): String? {
 		if (githubToken.isNullOrBlank()) return null
 		return try {
+			logger.info("Fetching SHA for URL: {}", url)
 			val res = restClient.get().uri(url)
 				.header("Authorization", "Bearer $githubToken")
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.retrieve()
 				.body(object : ParameterizedTypeReference<Map<String, Any>>() {})
-			res?.get("sha") as? String
+			val sha = res?.get("sha") as? String
+			logger.info("Fetched SHA: {}", sha)
+			sha
 		} catch(e: Exception) {
+			logger.warn("Failed to fetch SHA for {}: {}", url, e.message)
 			null
 		}
 	}
 
 	fun writeError(username: String, error: String, message: String) {
+		logger.info("Logging error for user '{}': [{}] {}", username, error, message)
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
@@ -613,16 +722,22 @@ class SimpleService {
 			}
 		}
 
-		restClient.put()
-			.uri(url)
-			.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
-			.contentType(MediaType.APPLICATION_JSON)
-			.body(body)
-			.retrieve()
-			.toBodilessEntity()
+		try {
+			restClient.put()
+				.uri(url)
+				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(body)
+				.retrieve()
+				.toBodilessEntity()
+			logger.info("Error successfully logged to GitHub errors.md")
+		} catch (e: Exception) {
+			logger.error("Failed to log error to GitHub: {}", e.message)
+		}
 	}
 
 	fun sendEdit(username: String, fileName: String, updateFile: MultipartFile) {
+		logger.info("--- [SimpleService: sendEdit] START (user: {}, file: {}) ---", username, fileName)
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
@@ -636,6 +751,7 @@ class SimpleService {
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
 
 		try {
+			logger.info("Fetching metadata for file to update: {}", url)
 			val currentFile = restClient.get()
 				.uri(url)
 				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
@@ -651,6 +767,7 @@ class SimpleService {
 				"sha" to currentFile.sha
 			)
 
+			logger.info("Executing PUT request for update...")
 			val response = restClient.put()
 				.uri(url)
 				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
@@ -660,14 +777,17 @@ class SimpleService {
 				.retrieve()
 				.toEntity(String::class.java)
 
-			println("GitHub Update Success for $username! Status: ${response.statusCode.value()}")
+			logger.info("GitHub Update Success for {}! Status: {}", username, response.statusCode.value())
 		} catch (e: Exception) {
-			println("CRITICAL: GitHub API Update Error: ${e.message}")
+			logger.error("CRITICAL: GitHub API Update Error for user '{}': {}", username, e.message)
 			throw e
+		} finally {
+			logger.info("--- [SimpleService: sendEdit] END ---")
 		}
 	}
 
 	fun uploadFileData(username: String, fileName: String, data: ByteArray) {
+		logger.info("--- [SimpleService: uploadFileData] START (user: {}, file: {}) ---", username, fileName)
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 		val repoOwner = "samging"
 		val repoName = "codeRepository"
@@ -677,6 +797,7 @@ class SimpleService {
 
 		var existingSha: String? = null
 		try {
+			logger.info("Checking SHA for raw data upload: {}", url)
 			val checkResponse = restClient.get()
 				.uri(url)
 				.header("Authorization", "Bearer ${githubToken ?: ""}")
@@ -685,7 +806,10 @@ class SimpleService {
 				.retrieve()
 				.body(GithubContentResponse::class.java)
 			existingSha = checkResponse?.sha
-		} catch (e: Exception) {}
+			logger.info("Retrieved SHA: {}", existingSha)
+		} catch (e: Exception) {
+			logger.info("No existing file found for raw upload (this is normal for new files)")
+		}
 
 		val body = mutableMapOf(
 			"message" to "Update $fileName via Amie Device Manager",
@@ -694,6 +818,7 @@ class SimpleService {
 		if (existingSha != null) body["sha"] = existingSha
 
 		try {
+			logger.info("Executing PUT request for raw data upload...")
 			restClient.put()
 				.uri(url)
 				.header("Authorization", "Bearer ${githubToken ?: ""}")
@@ -702,8 +827,11 @@ class SimpleService {
 				.body(body)
 				.retrieve()
 				.toBodilessEntity()
+			logger.info("GitHub raw data sync successful for '{}'", fileName)
 		} catch (e: Exception) {
-			println("DEBUG: GitHub data sync failed: ${e.message}")
+			logger.error("DEBUG: GitHub data sync failed for '{}': {}", fileName, e.message)
+		} finally {
+			logger.info("--- [SimpleService: uploadFileData] END ---")
 		}
 	}
 

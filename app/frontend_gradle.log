@@ -1,0 +1,19 @@
+Starting a Gradle Daemon, 1 stopped Daemon could not be reused, use --status for details
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file '/Users/samuel/Documents/GitHub/Amie/app/site/build.gradle.kts' line: 3
+
+* What went wrong:
+An exception occurred applying plugin request [id: 'com.varabyte.kobweb.application', version: '0.19.1']
+> Failed to apply plugin 'com.varabyte.kobweb.application'.
+   > This project is not a Kobweb project but is applying the Kobweb plugin.
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 3s

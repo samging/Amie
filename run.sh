@@ -7,10 +7,10 @@ echo "Starting Amie Full Stack..."
 
 # Start Backend
 cd /Users/samuel/Documents/GitHub/Amie/packageRepository
-./gradlew bootRun &
+./gradlew bootRun -Dorg.gradle.jvmargs="-Xmx2g" &
 
 # Start Frontend
 cd /Users/samuel/Documents/GitHub/Amie/app
-./gradlew :site:kobwebRun &
+./gradlew :site:kobwebStart &
 
 echo "Servers are starting in the background."

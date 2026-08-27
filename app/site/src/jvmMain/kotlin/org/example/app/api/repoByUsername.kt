@@ -11,8 +11,12 @@ import java.io.File
 
 @Api
 suspend fun repoByUsername(ctx: ApiContext) {
+    println("--- [API: repoByUsername] START ---")
     val username = ctx.req.params["username"] ?: ""
+    println("DEBUG: Username parameter: '$username'")
+
     if (username.isEmpty()) {
+        println("ERROR: Missing username parameter")
         ctx.res.status = 400
         ctx.res.setBodyText("Missing 'username' parameter")
         return
@@ -20,6 +24,7 @@ suspend fun repoByUsername(ctx: ApiContext) {
 
     // Call Spring Boot backend for recursive listing
     val url = "http://localhost:8080/user-packages?username=$username"
+    println("DEBUG: Proxying request to backend URL: $url")
     val client = HttpClient.newHttpClient()
     val request = HttpRequest.newBuilder()
         .uri(URI.create(url))
@@ -28,13 +33,18 @@ suspend fun repoByUsername(ctx: ApiContext) {
 
     try {
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        println("DEBUG: Backend response status: ${response.statusCode()}")
         ctx.res.status = response.statusCode()
-        ctx.res.setBodyText(response.body() ?: "[]")
+        val body = response.body() ?: "[]"
+        println("DEBUG: Backend response body length: ${body.length}")
+        ctx.res.setBodyText(body)
         ctx.res.contentType = "application/json"
     } catch (e: Exception) {
         println("ERROR proxying user-packages: ${e.message}")
         ctx.res.status = 500
         ctx.res.setBodyText("[]")
         ctx.res.contentType = "application/json"
+    } finally {
+        println("--- [API: repoByUsername] END ---")
     }
 }
