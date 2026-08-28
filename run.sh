@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 export JAVA_HOME=/Users/samuel/Library/Java/JavaVirtualMachines/ms-21.0.10/Contents/Home
-export GITHUB_TOKEN=
+#export GITHUB_TOKEN=
 
 echo "Starting Amie Full Stack..."
 
