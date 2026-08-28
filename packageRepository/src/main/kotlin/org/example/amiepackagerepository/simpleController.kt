@@ -301,10 +301,10 @@ class SimpleController(
 
 	@PostMapping("/login")
 	fun login(@RequestBody loginRequest: Map<String, String>): Map<String, String> {
+		logger.info("--- [POST /login] START ---")
 		val username = loginRequest["username"] ?: "guest"
-		logger.info("--- [POST /login] START (user: {}) ---", username)
 		val password = loginRequest["password"] ?: ""
-		
+		logger.info("DEBUG: Login attempt for user: $loginRequest | username: $username | password: $password")
 		println("DEBUG: Login attempt for user: $username")
 
 		val token = userService.loginAsUser(username, password)

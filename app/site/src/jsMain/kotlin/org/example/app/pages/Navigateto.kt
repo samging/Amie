@@ -47,7 +47,7 @@ fun Navigateto() {
     var loggedInUser by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        val token = window.localStorage.getItem("auth_token")
+        val token = window.localStorage.getItem("token")
         println("DEBUG: Navigateto token: $token")
         
         if (token != null) {
@@ -249,7 +249,7 @@ fun Navigateto() {
                                 options["method"] = "POST"
                                 options["body"] = formData
                                 val headers = js("{}")
-                                val token = window.localStorage.getItem("auth_token")
+                                val token = window.localStorage.getItem("token")
                                 headers["Authorization"] = "Bearer $token"
                                 options["headers"] = headers
 

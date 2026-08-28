@@ -3,6 +3,7 @@ package org.example.app.pages
 import androidx.compose.runtime.*
 import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.browser.api
+import com.varabyte.kobweb.compose.css.TextDecorationLine
 import com.varabyte.kobweb.compose.foundation.layout.Arrangement
 import com.varabyte.kobweb.compose.ui.Alignment
 import com.varabyte.kobweb.compose.ui.Modifier
@@ -10,6 +11,8 @@ import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
+import com.varabyte.kobweb.navigation.Route
+import com.varabyte.kobweb.silk.components.text.SpanText
 import kotlinx.browser.window
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.await
@@ -19,12 +22,14 @@ import org.jetbrains.compose.web.attributes.value
 import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.*
 import kotlin.js.Json
+import io.ktor.http.Url
+import io.ktor.http.encodeURLParameter
+import io.ktor.http.encodeURLQueryComponent
 
 private const val DASHBOARD_URL = "http://localhost:8080/dashboard"
 private const val LIST_GITHUB_URL = "http://localhost:8080/list-github"
 private const val QUERY_URL = "http://localhost:8080/query?query="
 
-// In-memory cache for Explorer data
 private object ExplorerCache {
     var packages: List<Json>? = null
 }
@@ -94,12 +99,20 @@ fun IndexPage() {
     }
 
     Div(
-        attrs = Modifier.padding(24.px).fillMaxWidth().toAttrs()
+        attrs = Modifier.padding(24.px).fillMaxWidth().backgroundColor(Color.black).toAttrs()
     ) {
         Div(Modifier.margin(bottom = 10.px).display(DisplayStyle.Flex).justifyContent(JustifyContent.SpaceBetween).toAttrs()) {
-            H1(Modifier.margin(0.px).toAttrs()) {
-                Text("Package Explorer")
+            Img(src = "/svglogo.svg", attrs = Modifier.size(width = 652.px, height = 142.px).toAttrs())
+            val loggedInUsername = window.localStorage.getItem("username")
+            for (i in 0 until window.localStorage.length) {
+                println(window.localStorage.key(i))
             }
+            if (loggedInUsername != null) {
+                SpanText(text = "Under Username: $loggedInUsername", modifier = Modifier.textDecorationLine(TextDecorationLine.Underline))
+            } else {
+                Text("Log in to upload packages")
+            }
+
             Div(attrs =
                 Modifier
                     .display(DisplayStyle.Flex).gap(4.px)
@@ -192,7 +205,6 @@ fun IndexPage() {
             val binaries = loadedPackages.filter { it["type"] == "file" }
 
             if (authors.isNotEmpty()) {
-                H2 { Text("Authors") }
                 Table(
                     attrs = Modifier
                         .fillMaxWidth()
@@ -212,7 +224,8 @@ fun IndexPage() {
                             val rawName = item["name"] as? String ?: "Unknown"
                             Tr(attrs = Modifier.borderTop(1.px, LineStyle.Solid, Color.lightgray).toAttrs()) {
                                 Td(attrs = Modifier.padding(12.px).toAttrs()) {
-                                    B { Text("👤 $rawName") }
+                                    B { Img(src = "usericon.svg", attrs = Modifier.size(40.px).toAttrs())
+                                        Text("$rawName") }
                                     Text(" (Author)")
                                 }
                                 Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
@@ -232,7 +245,6 @@ fun IndexPage() {
             }
 
             if (binaries.isNotEmpty()) {
-                H2 { Text("Binary Packages") }
                 Table(
                     attrs = Modifier
                         .fillMaxWidth()
@@ -263,7 +275,14 @@ fun IndexPage() {
                             } else "-"
 
                             Tr(attrs = Modifier.borderTop(1.px, LineStyle.Solid, Color.lightgray).toAttrs()) {
-                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text("📄 $rawName") }
+                                Td(attrs = Modifier.padding(12.px).toAttrs()) {
+                                    when {
+                                        rawName.endsWith(".py") -> Img(src = "python.svg", attrs = Modifier.size(40.px).toAttrs())
+                                        rawName.endsWith(".json") -> Img(src = "json.svg", attrs = Modifier.size(40.px).toAttrs())
+                                        else ->  { Text("📄") }
+                                    }
+                                    Text("$rawName")
+                                }
                                 Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(sizeDisplay) }
                                 Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
                                     val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
@@ -271,11 +290,27 @@ fun IndexPage() {
                                     Button(
                                         attrs = Modifier.margin(right = 5.px).toAttrs({
                                             onClick {
-                                                val encodedPath = js("encodeURIComponent")(path) as String
-                                                val encodedUrl = if (downloadUrl.isNotEmpty()) js("encodeURIComponent")(downloadUrl) as String else ""
+                                                println("PATH: $path")
+                                                val encodedPath = if (path.isNotEmpty()) path.encodeURLParameter() as String else ""
+                                                println("E path ${encodedPath}")
+
+                                                val encodedUrl = if (downloadUrl.isNotEmpty()) downloadUrl.encodeURLParameter() as String else ""
+                                                println("E url: ${encodedUrl}")
+
+                                                println("DEBUG: Navigating to View route for: ${encodedPath} + ${encodedUrl}")
+
                                                 val viewRoute = "/view?package=$encodedPath&username=$owner&from=aboutss&url=$encodedUrl"
-                                                println("DEBUG: Navigating to View route: $viewRoute")
+                                                val parsedUrl = io.ktor.http.Url(viewRoute)
+                                                val decodedUrl = parsedUrl.parameters["url"] ?: ""
+
+                                                println("EPIC MAGIC: $decodedUrl")
+
+                                                val queryString = viewRoute.substringAfter('?', missingDelimiterValue = "")
+                                                val searchParams = js("new URLSearchParams(queryString)")
+                                                val pkgParam = searchParams.get("package") as? String
+
                                                 ctx.router.navigateTo(viewRoute)
+
                                             }
                                         })
                                     ) { Text("View") }

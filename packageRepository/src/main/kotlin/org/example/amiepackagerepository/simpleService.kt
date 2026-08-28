@@ -1,5 +1,6 @@
 package org.example.amiepackagerepository
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.FileList
 import com.google.api.services.drive.model.File as DriveFile
@@ -23,6 +24,7 @@ import kotlinx.serialization.json.*
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.decodeFromString
 import org.springframework.http.ResponseEntity
+import org.springframework.web.client.toEntity
 
 /**
  * Common interface for items retrieved from different repository types.
@@ -70,7 +72,8 @@ data class GithubSearchResponse(
 	val items: List<GithubSearchItem>
 )
 
-@Serializable
+//@Serializable
+@JsonIgnoreProperties(ignoreUnknown = true)
 data class GithubContentResponse(
 	val name: String,
 	val path: String,
@@ -110,6 +113,8 @@ data class EndpointDto(
 @Suppress("NewApi")
 class SimpleService {
 	private val logger = LoggerFactory.getLogger(SimpleService::class.java)
+
+
 	private val json = Json { ignoreUnknownKeys = true }
 	private val restClient = RestClient.builder()
 		.requestFactory(org.springframework.http.client.SimpleClientHttpRequestFactory().apply {
@@ -121,6 +126,7 @@ class SimpleService {
 	fun listFilesGithub(): List<GithubItem> {
 		logger.info("--- [SimpleService: listFilesGithub] START ---")
 		val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
+
 		if (githubToken != null) {
 			val safeToken = if (githubToken.length > 8) "${githubToken.take(4)}...${githubToken.takeLast(4)}" else "****"
 			logger.info("Using GITHUB_TOKEN (Length: {}): {}", githubToken.length, safeToken)
@@ -132,39 +138,42 @@ class SimpleService {
 		val repoName = "codeRepository"
 		val path = "uploads"
 		val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+		var response: ResponseEntity<List<GithubContentResponse>>? = null
 
-		return try {
+		try {
 			logger.info("Calling GitHub contents API: {}", url)
-			val response = restClient.get()
+			//netInspect.run(url)
+			response = restClient.get()
 				.uri(url)
 				.header("Authorization", "Bearer ${githubToken?.trim() ?: ""}")
 				.header("Accept", "application/vnd.github+json")
-				.header("X-GitHub-Api-Version", "2022-11-28")
-				.retrieve()
-				.onStatus({ it.value() == 404 }, { _, _ -> 
-					logger.warn("GitHub path not found (404): {}", path)
-					throw IOException("Directory not found (likely empty)")
-				})
-				.body(object : ParameterizedTypeReference<List<GithubContentResponse>>() {})
+				.header("X-GitHub-Api-Version", "2022-11-28").retrieve()
+				.toEntity(object : org.springframework.core.ParameterizedTypeReference<List<GithubContentResponse>>() {})
 
-			logger.info("GitHub API response success, found {} items", response?.size ?: 0)
-			response?.map {
-				GithubItem(
-					name = it.name,
-					downloadUrl = it.downloadUrl ?: "",
-					type = it.type
-				)
+			logger.info("[STATUS]: ${response?.statusCode}")
+			logger.info("[G]Response Result: ${response.body}")
+
+			val conversion = response?.body?.map {
+				GithubItem(it.name, it.downloadUrl, it.sha, it.type)
 			} ?: emptyList()
+
+			return conversion
 		} catch (e: FileNotFoundException) {
 			logger.info("GitHub: Path '{}' not found. This usually means the folder is empty.", path)
-			emptyList()
+			emptyList<GithubItem>()
 		} catch (e: Exception) {
-			logger.error("GitHub List Error: {}", e.message)
-			emptyList()
+			logger.error("GitHub List Error: ${e.message} with status ${response?.statusCode ?: "response status not found."}")
+			emptyList<GithubItem>()
 		} finally {
 			logger.info("--- [SimpleService: listFilesGithub] END ---")
 		}
+		return emptyList()
 	}
+
+
+
+
+
 
 	/**
 	 * Recursively lists all files in a user's upload directory.

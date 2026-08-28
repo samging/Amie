@@ -42,6 +42,7 @@ kotlin {
             implementation(libs.kobwebx.markdown)
             implementation(libs.kotlinx.serialization.json)
             implementation(npm("highlight.js", "11.9.0"))
+            implementation("io.ktor:ktor-client-core:2.3.12")
         }
 
         // Uncomment this block so backend code (`jvmMain`) is recognized:

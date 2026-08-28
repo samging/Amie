@@ -14,6 +14,7 @@ import org.jetbrains.compose.web.dom.*
 import kotlin.js.Json
 import com.varabyte.kobweb.compose.css.Overflow
 import com.varabyte.kobweb.compose.ui.graphics.Color
+import io.ktor.http.Url
 import org.w3c.dom.Element
 
 @JsModule("highlight.js")
@@ -66,37 +67,46 @@ fun HighlightedCode(code: String, language: String? = null) {
 @Composable
 fun ViewPage() {
     val ctx = rememberPageContext()
-    val packageName = ctx.route.params["package"] ?: ""
-    val username = ctx.route.params["username"] ?: ""
-    val from = ctx.route.params["from"] ?: ""
-    val directUrl = ctx.route.params["url"] ?: ""
-    
+    println("CTX: ${ctx.route}")
+    println("CTX-PARAMS: ${ctx.route.params}")
+    val urlCtx = Url("${ctx.route}")
+    println("URL-PACKAGE: ${urlCtx.parameters["url"]}")
+
+    val packageName = urlCtx.parameters["package"] ?: ""
+    val username = urlCtx.parameters["username"] ?: ""
+
+    val from = urlCtx.parameters["from"] ?: ""
+    val directUrl = urlCtx.parameters["url"] ?: ""
+
+    println("DEBUG: Route Params - package: '$packageName', username: '$username', from: '$from', url: '$directUrl' ")
+
+
     var packageData by remember { mutableStateOf<Json?>(null) }
     var rawTextContent by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     
-    // Use AbortController to kill the request if the user navigates back
     val abortController = remember { js("new AbortController()") }
     var deferredJob by remember { mutableStateOf<Deferred<Unit>?>(null) }
 
-    LaunchedEffect(packageName, directUrl) {
-        if (packageName.isNotEmpty()) {
+    LaunchedEffect(directUrl) {
+        if (directUrl.isNotEmpty()) {
             val job = async {
                 println("--- [ViewPage: LaunchedEffect] START ---")
                 println("DEBUG: Route Params - package: '$packageName', username: '$username', url: '$directUrl'")
                 isLoading = true
                 error = null
+
                 try {
-                    // 1. Fetch metadata (and content) from our API
-                    val encodedPath = packageName.split("/").joinToString("/") { 
+                    val encodedPath = packageName.split("/").joinToString("/") {
                         js("encodeURIComponent")(it) as String 
                     }
-                    
+                    println("Encoded path: $encodedPath")
+
                     val options = js("{}")
                     options["signal"] = abortController.signal
                     
-                    val token = window.localStorage.getItem("auth_token")
+                    val token = window.localStorage.getItem("token")
                     if (token != null) {
                         val headers = js("{}")
                         headers["Authorization"] = "Bearer $token"
@@ -107,6 +117,7 @@ fun ViewPage() {
                     }
                     
                     val apiCallUrl = "/api/view?package=$encodedPath&username=$username"
+
                     println("DEBUG: Fetching from API: $apiCallUrl")
                     val response = window.fetch(apiCallUrl, options).await()
                     println("DEBUG: API Fetch Status: ${response.status} ${response.statusText}")
@@ -141,7 +152,6 @@ fun ViewPage() {
                         console.warn("DEBUG: API fetch failed with status ${response.status}")
                     }
 
-                    // 2. If API didn't provide content, try fetching directUrl (if provided)
                     if (rawTextContent == null && directUrl.isNotEmpty()) {
                         println("DEBUG: rawTextContent is null, trying direct fetch from directUrl: $directUrl")
                         try {
@@ -202,11 +212,7 @@ fun ViewPage() {
                     abortController.abort()
                     deferredJob?.cancel()
                     
-                    if (from == "aboutss") {
-                        ctx.router.navigateTo("/")
-                    } else {
-                        ctx.router.navigateTo("/dashboard?username=$username")
-                    }
+                    ctx.router.navigateTo("/")
                 }
             })) {
                 Text("← Back")
