@@ -1,17 +1,15 @@
-package org.example.amiepackagerepository
-
+package org.example.amiepackagerepository.devTools
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import okhttp3.Cookie
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
-import org.springframework.http.client.JdkClientHttpRequestFactory
-import org.springframework.web.client.RestClient
+import org.example.amiepackagerepository.service.GithubContentResponse
+import org.slf4j.LoggerFactory
 
 class netInspect {
     companion object {
-        private val logger = org.slf4j.LoggerFactory.getLogger(netInspect::class.java)
+        private val logger = LoggerFactory.getLogger(netInspect::class.java)
         private val netLogger = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
         private val githubToken = System.getenv("GITHUB_TOKEN")
 

@@ -1,5 +1,6 @@
-package org.example.amiepackagerepository
+package org.example.amiepackagerepository.domain.entities
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import jakarta.persistence.*
 
 @Entity
@@ -25,6 +26,6 @@ data class DeviceStatus(
     
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
-    @com.fasterxml.jackson.annotation.JsonIgnore
+    @JsonIgnore
     val user: User? = null
 )

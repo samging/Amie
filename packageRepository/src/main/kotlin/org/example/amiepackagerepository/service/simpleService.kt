@@ -1,4 +1,4 @@
-package org.example.amiepackagerepository
+package org.example.amiepackagerepository.service
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.google.api.services.drive.Drive
@@ -72,7 +72,6 @@ data class GithubSearchResponse(
 	val items: List<GithubSearchItem>
 )
 
-//@Serializable
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class GithubContentResponse(
 	val name: String,
@@ -200,7 +199,7 @@ class SimpleService {
 					.header("Accept", "application/vnd.github+json")
 					.header("X-GitHub-Api-Version", "2022-11-28")
 					.retrieve()
-					.body(object : ParameterizedTypeReference<List<GithubContentResponse>>() {})
+					.body(object : org.springframework.core.ParameterizedTypeReference<List<GithubContentResponse>>() {})
 				
 				logger.info("Walked path '{}' successfully, found {} items", path, response?.size ?: 0)
 				response?.forEach { item ->
@@ -702,7 +701,7 @@ class SimpleService {
 				.header("Accept", "application/vnd.github+json")
 				.header("X-GitHub-Api-Version", "2022-11-28")
 				.retrieve()
-				.body(object : ParameterizedTypeReference<Map<String, Any>>() {})
+				.body(object : org.springframework.core.ParameterizedTypeReference<Map<String, Any>>() {})
 			val sha = res?.get("sha") as? String
 			logger.info("Fetched SHA: {}", sha)
 			sha

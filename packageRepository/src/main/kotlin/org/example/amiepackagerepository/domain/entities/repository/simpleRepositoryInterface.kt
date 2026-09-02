@@ -1,5 +1,7 @@
-package org.example.amiepackagerepository
+package org.example.amiepackagerepository.domain.entities.repository
 
+import org.example.amiepackagerepository.domain.entities.DeviceStatus
+import org.example.amiepackagerepository.domain.entities.User
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.stereotype.Repository

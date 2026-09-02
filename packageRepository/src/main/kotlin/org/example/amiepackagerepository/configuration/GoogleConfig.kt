@@ -1,4 +1,4 @@
-package org.example.amiepackagerepository
+package org.example.amiepackagerepository.configuration
 
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
@@ -8,8 +8,7 @@ import com.google.auth.http.HttpCredentialsAdapter
 import com.google.auth.oauth2.GoogleCredentials
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import java.io.IOException
-import java.io.InputStream
+import java.io.File
 import java.util.Collections
 
 /**
@@ -28,7 +27,7 @@ class ConnectToGoogleDrive {
 		val configPath = System.getenv("b")
 			?: "/Users/samuel/Downloads/amieServicePackages.json" // Primary fallbackuy7hj6y6t5grtgr5t5grt5
 
-		val gFile = java.io.File(configPath)
+		val gFile = File(configPath)
 		if (!gFile.exists()) {
 			throw IllegalStateException("Credentials file not found at $configPath. Please check AMIE_GDISK_OA env var.")
 		}

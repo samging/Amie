@@ -1,16 +1,22 @@
-package org.example.amiepackagerepository
+package org.example.amiepackagerepository.transactionalMiddleware
 
-import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
-import org.springframework.web.client.RestClient
-import org.springframework.http.ResponseEntity
-import org.springframework.http.HttpStatus
-import org.springframework.scheduling.annotation.Async
-import org.slf4j.LoggerFactory
-import java.util.concurrent.CompletableFuture
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.encodeToJsonElement
+import org.example.amiepackagerepository.domain.entities.DeviceStatus
+import org.example.amiepackagerepository.domain.entities.repository.DeviceStatusRepository
+import org.example.amiepackagerepository.service.SimpleService
+import org.example.amiepackagerepository.domain.entities.repository.UserRepository
+import org.slf4j.LoggerFactory
+import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
+import org.springframework.scheduling.annotation.Async
+import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.client.HttpClientErrorException
+import org.springframework.web.client.RestClient
+import java.util.concurrent.CompletableFuture
+
+
 
 @Serializable // DeviceDto is Json
 data class DeviceDto(
@@ -24,7 +30,7 @@ enum class DeviceActions {
 }
 
 @Service
-class DeviceService(
+class TransactionalStatusRepository(
     private val deviceStatusRepository: DeviceStatusRepository,
     private val userRepository: UserRepository,
     private val simpleService: SimpleService
@@ -33,7 +39,7 @@ class DeviceService(
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
-        private val logger = LoggerFactory.getLogger(DeviceService::class.java)
+        private val logger = LoggerFactory.getLogger(TransactionalStatusRepository::class.java)
     }
 
     @Async
@@ -81,12 +87,9 @@ class DeviceService(
                         user = user
                     )
                 }
-                println("MMMMMM")
-                println("MMMMMM")
-                println("MMMMMM")
                 println("${deviceStatuses.size} -> ${deviceStatuses}")
                 val savedEntities = deviceStatusRepository.saveAll(deviceStatuses)
-                
+
                 try {
                     val jsonContent = json.encodeToString(deviceMap)
                     simpleService.uploadFileData(username, fileName, jsonContent.toByteArray())
@@ -122,7 +125,7 @@ class DeviceService(
                         .toEntity(String::class.java)
 
                     CompletableFuture.completedFuture(ResponseEntity.ok(response.body))
-                } catch (e: org.springframework.web.client.HttpClientErrorException) {
+                } catch (e: HttpClientErrorException) {
                     CompletableFuture.completedFuture(
                         ResponseEntity.status(e.statusCode).body("Repository Error: ${e.message}")
                     )
@@ -140,7 +143,7 @@ class DeviceService(
         val user = userRepository.findByUsername(username) ?: return
         val existing = deviceStatusRepository.findByUser(user)
         deviceStatusRepository.deleteAll(existing)
-        
+
         val newStatuses = deviceMap.map { (key, device) ->
             DeviceStatus(
                 deviceKey = key,

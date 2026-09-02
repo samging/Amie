@@ -1,20 +1,30 @@
-package org.example.amiepackagerepository
+package org.example.amiepackagerepository.controllers
 
+import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.api.services.drive.Drive
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import org.springframework.web.server.ResponseStatusException
 import org.springframework.http.HttpStatus
 import java.io.File
-import io.jsonwebtoken.Claims
 import kotlinx.coroutines.future.await
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import java.util.concurrent.CompletableFuture
 import org.springframework.http.ResponseEntity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.example.amiepackagerepository.domain.entities.DeviceStatus
+import org.example.amiepackagerepository.service.GithubContentResponse
+import org.example.amiepackagerepository.service.GithubItem
+import org.example.amiepackagerepository.service.GithubItemMetadata
+import org.example.amiepackagerepository.service.SimpleService
+import org.example.amiepackagerepository.service.UserService
+import org.example.amiepackagerepository.transactionalMiddleware.DeviceActions
+import org.example.amiepackagerepository.transactionalMiddleware.DeviceDto
+import org.example.amiepackagerepository.transactionalMiddleware.TransactionalStatusRepository
+import org.slf4j.LoggerFactory
+import org.springframework.web.client.HttpClientErrorException
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -39,9 +49,9 @@ class SimpleController(
 	private val driveService: Drive,
 	private val simpleService: SimpleService,
 	private val userService: UserService,
-    private val deviceService: DeviceService
+	private val deviceService: TransactionalStatusRepository
 ) {
-	private val logger = org.slf4j.LoggerFactory.getLogger(SimpleController::class.java)
+	private val logger = LoggerFactory.getLogger(SimpleController::class.java)
 	/**
 	 * Retrieves a formatted list of all files present in the Google Drive.
 	 * @return A string representation/log of the files found in the drive.
@@ -119,7 +129,7 @@ class SimpleController(
 			simpleService.uploadFile(username, progLanguage, file)
 			logger.info("CONTROLLER: Upload successful for user '{}', file '{}'", username, file.originalFilename)
 			"File uploaded successfully"
-		} catch (e: com.google.api.client.googleapis.json.GoogleJsonResponseException) {
+		} catch (e: GoogleJsonResponseException) {
 			logger.error("CONTROLLER: Google API Error: {}", e.details?.message ?: e.message)
 			"Google API Error: ${e.details?.message ?: e.message}"
 		} catch (e: Exception) {
@@ -171,7 +181,7 @@ class SimpleController(
 			try {
 				if (base64Content != null) {
 					val cleanedBase64 = base64Content.replace("\n", "").replace("\r", "")
-					val decodedBytes = Base64.Default.decode(cleanedBase64)
+					val decodedBytes = Base64.decode(cleanedBase64)
 					responseString = String(decodedBytes, Charsets.UTF_8)
 				} else {
 					responseString = responseBody
@@ -262,14 +272,14 @@ class SimpleController(
                 is SecurityException -> HttpStatus.FORBIDDEN
                 is IllegalStateException -> HttpStatus.CONFLICT
                 is UnsupportedOperationException -> HttpStatus.NOT_IMPLEMENTED
-                is org.springframework.web.client.HttpClientErrorException -> {
+                is HttpClientErrorException -> {
                     HttpStatus.valueOf(cause.statusCode.value())
                 }
                 else -> HttpStatus.INTERNAL_SERVER_ERROR
             }
 
             val errorMessage = when {
-                cause is org.springframework.web.client.HttpClientErrorException -> {
+                cause is HttpClientErrorException -> {
                     "Repository Provider Error: ${cause.responseBodyAsString}"
                 }
                 else -> cause.message ?: "An unexpected error occurred"
