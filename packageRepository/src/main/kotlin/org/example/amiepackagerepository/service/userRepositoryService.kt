@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.Claims
 import org.example.amiepackagerepository.domain.entities.User
-import org.example.amiepackagerepository.domain.entities.repository.UserRepository
+import org.example.amiepackagerepository.domain.repository.UserRepository
 import javax.crypto.SecretKey
 import java.util.Date
 

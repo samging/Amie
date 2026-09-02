@@ -3,9 +3,9 @@ package org.example.amiepackagerepository.transactionalMiddleware
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.example.amiepackagerepository.domain.entities.DeviceStatus
-import org.example.amiepackagerepository.domain.entities.repository.DeviceStatusRepository
+import org.example.amiepackagerepository.domain.repository.DeviceStatusRepository
 import org.example.amiepackagerepository.service.SimpleService
-import org.example.amiepackagerepository.domain.entities.repository.UserRepository
+import org.example.amiepackagerepository.domain.repository.UserRepository
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity

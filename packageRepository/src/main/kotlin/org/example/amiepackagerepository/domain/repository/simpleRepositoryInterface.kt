@@ -1,4 +1,4 @@
-package org.example.amiepackagerepository.domain.entities.repository
+package org.example.amiepackagerepository.domain.repository
 
 import org.example.amiepackagerepository.domain.entities.DeviceStatus
 import org.example.amiepackagerepository.domain.entities.User

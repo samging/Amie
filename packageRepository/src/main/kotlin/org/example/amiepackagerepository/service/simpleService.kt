@@ -467,7 +467,6 @@ class SimpleService {
 			val encodedContent = response?.content?.replace("\n", "") ?: ""
 			val decodedContent = String(Base64.getDecoder().decode(encodedContent))
 			
-			// Use the class-level 'json' (Kotlinx Serialization) to handle @SerialName
 			return try {
 				val list = json.decodeFromString<List<EndpointDto>>(decodedContent)
 				logger.info("Successfully parsed {} endpoints", list.size)
