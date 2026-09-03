@@ -1,12 +1,12 @@
-package org.example.amiepackagerepository.controllers.integrations.github.application
+package org.example.amiepackagerepository.application
 
 import com.google.api.services.drive.Drive
-import org.example.amiepackagerepository.domain.entities.DeviceStatus
-import org.example.amiepackagerepository.service.SimpleService
-import org.example.amiepackagerepository.service.UserService
+import org.example.amiepackagerepository.controllers.integrations.github.GithubService
+import org.example.amiepackagerepository.service.user.service.UserService
 import org.example.amiepackagerepository.transactionalMiddleware.DeviceActions
 import org.example.amiepackagerepository.transactionalMiddleware.DeviceDto
 import org.example.amiepackagerepository.transactionalMiddleware.TransactionalStatusRepository
+import org.example.amiepackagerepository.transactionalMiddleware.entities.entities.DeviceStatus
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -23,7 +23,7 @@ import java.util.concurrent.CompletableFuture
 @RestController
 class DeviceController(
     private val driveService: Drive,
-    private val simpleService: SimpleService,
+    private val simpleService: GithubService,
     private val userService: UserService,
     private val deviceService: TransactionalStatusRepository
 ) {

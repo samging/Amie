@@ -6,11 +6,12 @@ import kotlinx.coroutines.future.await
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.example.amiepackagerepository.dto.sendDeviceStatusDto
-import org.example.amiepackagerepository.service.GithubItem
-import org.example.amiepackagerepository.service.GithubItemMetadata
-import org.example.amiepackagerepository.service.SimpleService
-import org.example.amiepackagerepository.service.UserService
+import org.example.amiepackagerepository.controllers.integrations.github.dto.PostDeviceStatusDto
+
+import org.example.amiepackagerepository.controllers.integrations.github.dto.GithubItemMetadataDto
+import org.example.amiepackagerepository.controllers.integrations.github.dto.GithubItemDto
+
+import org.example.amiepackagerepository.service.user.service.UserService
 import org.example.amiepackagerepository.transactionalMiddleware.DeviceActions
 import org.example.amiepackagerepository.transactionalMiddleware.DeviceDto
 import org.example.amiepackagerepository.transactionalMiddleware.TransactionalStatusRepository
@@ -32,7 +33,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 @RestController
 class GithubController(
     private val driveService: Drive,
-    private val simpleService: SimpleService,
+    private val simpleService: GithubService,
     private val userService: UserService,
     private val deviceService: TransactionalStatusRepository
 ) {
@@ -43,17 +44,17 @@ class GithubController(
      * @return A list of items found in the GitHub repository.
      */
     @GetMapping("/list-github")
-    fun getRepositoryFiles(): List<GithubItem> {
+    fun getRepositoryFiles(): List<GithubItemDto> {
         logger.info("--- [GET /list-github] START ---")
         return simpleService.listFilesGithub().also { logger.info("--- [GET /list-github] END ---") }
     }
 
     @GetMapping("list-github-metadata")
-    fun getRepositoryMetadata(): Map<String, GithubItemMetadata> {
+    fun getRepositoryMetadata(): Map<String, GithubItemMetadataDto> {
         logger.info("--- [GET /list-github-metadata] START ---")
         val githubItems = simpleService.listFilesGithub()
         return githubItems.mapIndexed { index, item ->
-            index.toString() to GithubItemMetadata(
+            index.toString() to GithubItemMetadataDto(
                 name = item.name,
                 downloadUrl = item.downloadUrl,
                 id = item.id,
@@ -100,7 +101,7 @@ class GithubController(
 
     @PostMapping("/update-device-status")
     suspend fun postDeviceStatusDto(
-        @RequestBody deviceUpdateDto: sendDeviceStatusDto
+        @RequestBody deviceUpdateDto: PostDeviceStatusDto
     ){
         logger.info("--- [POST /update-device-status] START (user: {}) ---", deviceUpdateDto.username)
         println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
@@ -120,7 +121,7 @@ class GithubController(
     @OptIn(ExperimentalEncodingApi::class)
     @PostMapping("/get-device-status")
     suspend fun fetchDeviceStatuses(
-        @RequestBody deviceUpdateDto: sendDeviceStatusDto
+        @RequestBody deviceUpdateDto: PostDeviceStatusDto
     ): Map<String, DeviceDto>? {
         logger.info("--- [POST /get-device-status] START (user: {}) ---", deviceUpdateDto.username)
         println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")

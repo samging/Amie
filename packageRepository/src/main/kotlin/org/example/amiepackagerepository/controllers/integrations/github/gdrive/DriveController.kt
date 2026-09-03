@@ -1,8 +1,8 @@
 package org.example.amiepackagerepository.controllers.integrations.github.gdrive
 
 import com.google.api.services.drive.Drive
-import org.example.amiepackagerepository.service.SimpleService
-import org.example.amiepackagerepository.service.UserService
+import org.example.amiepackagerepository.controllers.integrations.github.gdrive.DriveService
+import org.example.amiepackagerepository.service.user.service.UserService
 import org.example.amiepackagerepository.transactionalMiddleware.TransactionalStatusRepository
 import org.slf4j.LoggerFactory
 import org.springframework.web.bind.annotation.CrossOrigin
@@ -15,7 +15,7 @@ import java.io.File
 @RestController
 class DriveController(
     private val driveService: Drive,
-    private val simpleService: SimpleService,
+    private val simpleService: DriveService,
     private val userService: UserService,
     private val deviceService: TransactionalStatusRepository
 ) {

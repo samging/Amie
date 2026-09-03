@@ -1,15 +1,16 @@
-package org.example.amiepackagerepository.devTools
+package org.example.amiepackagerepository.service.devTools
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
-import org.example.amiepackagerepository.service.GithubContentResponse
+import org.example.amiepackagerepository.controllers.integrations.github.dto.GithubContentResponseDto
 import org.slf4j.LoggerFactory
+import kotlin.jvm.java
 
-class netInspect {
+class NetInspect {
     companion object {
-        private val logger = LoggerFactory.getLogger(netInspect::class.java)
+        private val logger = LoggerFactory.getLogger(NetInspect::class.java)
         private val netLogger = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY }
         private val githubToken = System.getenv("GITHUB_TOKEN")
 
@@ -37,7 +38,7 @@ class netInspect {
                 println("Status Code: ${response.code}")
 
                 val githubContent = if (response.isSuccessful) {
-                    ObjectMapper().readValue(responseBodyString, GithubContentResponse::class.java)
+                    ObjectMapper().readValue(responseBodyString, GithubContentResponseDto::class.java)
                 } else {
                     println("Error Response Body: $responseBodyString")
                     null

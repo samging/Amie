@@ -1,9 +1,9 @@
-package org.example.amiepackagerepository.controllers.integrations.github.website
+package org.example.amiepackagerepository.website
 
 import com.google.api.services.drive.Drive
-import org.example.amiepackagerepository.service.GithubContentResponse
-import org.example.amiepackagerepository.service.SimpleService
-import org.example.amiepackagerepository.service.UserService
+import org.example.amiepackagerepository.controllers.integrations.github.GithubService
+import org.example.amiepackagerepository.controllers.integrations.github.dto.GithubContentResponseDto
+import org.example.amiepackagerepository.service.user.service.UserService
 import org.example.amiepackagerepository.transactionalMiddleware.TransactionalStatusRepository
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -21,7 +21,7 @@ import org.springframework.web.server.ResponseStatusException
 @RestController
 class UserController(
     private val driveService: Drive,
-    private val simpleService: SimpleService,
+    private val simpleService: GithubService,
     private val userService: UserService,
     private val deviceService: TransactionalStatusRepository
 ) {
@@ -128,7 +128,7 @@ class UserController(
     }
 
     @GetMapping("/user-packages")
-    fun getUserPackages(@RequestParam username: String): List<GithubContentResponse> {
+    fun getUserPackages(@RequestParam username: String): List<GithubContentResponseDto> {
         logger.info("--- [GET /user-packages] START (user: {}) ---", username)
         return simpleService.listUserPackages(username).also { logger.info("--- [GET /user-packages] END ---") }
     }
