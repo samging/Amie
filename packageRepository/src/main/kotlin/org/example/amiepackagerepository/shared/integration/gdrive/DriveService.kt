@@ -10,6 +10,10 @@ import java.io.IOException
 import java.io.OutputStream
 import kotlin.collections.isNullOrEmpty
 
+/**
+ * Service for interacting with Google Drive.
+ * Provides functionality for listing files and downloading specific content from Drive.
+ */
 @Service
 @Suppress("NewApi")
 class DriveService {

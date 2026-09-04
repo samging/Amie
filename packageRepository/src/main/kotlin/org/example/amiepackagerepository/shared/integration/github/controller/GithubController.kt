@@ -28,6 +28,21 @@ import org.springframework.web.server.ResponseStatusException
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
+/**
+ * REST Controller for GitHub integration.
+ * Provides endpoints for managing files and device statuses within a GitHub repository.
+ *
+ * Supported operations:
+ * - Listing repository files and metadata.
+ * - Uploading new code snippets with language classification.
+ * - Updating/editing existing files.
+ * - Syncing device status DTOs with GitHub storage.
+ *
+ * @property driveService The authorized Google Drive client.
+ * @property simpleService The service handling GitHub-specific logic.
+ * @property userService Authentication and user data service.
+ * @property deviceService Service for handling device-related transactional logic.
+ */
 @CrossOrigin(origins = ["http://localhost:8081"])
 @RestController
 class GithubController(
@@ -39,8 +54,9 @@ class GithubController(
     private val logger = LoggerFactory.getLogger(GithubController::class.java)
 
     /**
-     * Retrieves a list of all files present in the GitHub repository.
-     * @return A list of items found in the GitHub repository.
+     * Retrieves a list of all files present in the GitHub repository "uploads" folder.
+     *
+     * @return A list of [GithubItemDto] objects.
      */
     @GetMapping("/list-github")
     fun getRepositoryFiles(): List<GithubItemDto> {
@@ -48,6 +64,12 @@ class GithubController(
         return simpleService.listFilesGithub().also { logger.info("--- [GET /list-github] END ---") }
     }
 
+    /**
+     * Retrieves metadata for all files in the repository.
+     * Specifically identifies if files are C components (*.c).
+     *
+     * @return A map where the key is the index string and the value is [GithubItemMetadataDto].
+     */
     @GetMapping("list-github-metadata")
     fun getRepositoryMetadata(): Map<String, GithubItemMetadataDto> {
         logger.info("--- [GET /list-github-metadata] START ---")
@@ -63,6 +85,16 @@ class GithubController(
         }.toMap().also { logger.info("--- [GET /list-github-metadata] END ---") }
     }
 
+    /**
+     * Uploads a code snippet to GitHub. Validates the user's JWT token first.
+     *
+     * @param file The file to upload.
+     * @param progLanguage The programming language of the snippet (for directory categorization).
+     * @param username The owner of the file.
+     * @param authHeader The "Authorization" Bearer token.
+     * @return A success or error message string.
+     * @throws ResponseStatusException 401 if unauthorized, 403 if forbidden.
+     */
     @PostMapping("/upload")
     fun uploadCodeSnippet(
         @RequestParam("file") file: MultipartFile,
@@ -98,12 +130,16 @@ class GithubController(
         }
     }
 
+    /**
+     * Updates the device status for a user on GitHub (Async).
+     *
+     * @param deviceUpdateDto Data containing the username and new device configuration map.
+     */
     @PostMapping("/update-device-status")
     suspend fun postDeviceStatusDto(
         @RequestBody deviceUpdateDto: PostDeviceStatusDto
     ){
         logger.info("--- [POST /update-device-status] START (user: {}) ---", deviceUpdateDto.username)
-        println("[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
         logger.info("Received device update request for user: ${deviceUpdateDto.username}")
 
         val response = deviceService.repositoryDeviceController(
@@ -117,13 +153,18 @@ class GithubController(
         logger.info("--- [POST /update-device-status] END ---")
     }
 
+    /**
+     * Fetches current device statuses for a user from GitHub storage (Async).
+     *
+     * @param deviceUpdateDto Data containing the username.
+     * @return A map of device identifiers to [DeviceDto] objects.
+     */
     @OptIn(ExperimentalEncodingApi::class)
     @PostMapping("/get-device-status")
     suspend fun fetchDeviceStatuses(
         @RequestBody deviceUpdateDto: PostDeviceStatusDto
     ): Map<String, DeviceDto>? {
         logger.info("--- [POST /get-device-status] START (user: {}) ---", deviceUpdateDto.username)
-        println("[G][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
         logger.info("Received device update request for user: ${deviceUpdateDto.username}")
 
         val response = deviceService.repositoryDeviceController(
@@ -149,11 +190,11 @@ class GithubController(
             }
             logger.info("Device update successful for user: ${deviceUpdateDto.username}")
 
-            println("[RESPONSE][][][][][][][][][][][][][][][][][][][][][][][][][][][][START]")
+            logger.info("[RESPONSE][][][][][][][][][][][][][][][][][][][][][][][][][][][][START]")
             val decod = Json.decodeFromString<Map<String, DeviceDto>>(responseString)
-            println(responseString)
-            println("[RESPONSE][][][][][][][][][][][][][][][][][][][][][][][][][][][][END]")
-            println("[DECOD][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
+            logger.info(responseString)
+            logger.info("[RESPONSE][][][][][][][][][][][][][][][][][][][][][][][][][][][][END]")
+            logger.info("[DECOD][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][]")
             println(decod)
             logger.info("--- [POST /get-device-status] END ---")
             return decod
@@ -164,6 +205,15 @@ class GithubController(
         }
     }
 
+    /**
+     * Updates/Edits an existing file on GitHub.
+     *
+     * @param file The new file content.
+     * @param fileName The name of the file to update.
+     * @param username The owner of the file.
+     * @param authHeader The Bearer token for authentication.
+     * @return Success or error message.
+     */
     @PostMapping("/edit")
     fun updateCodeSnippet(
         @RequestParam("file") file: MultipartFile,

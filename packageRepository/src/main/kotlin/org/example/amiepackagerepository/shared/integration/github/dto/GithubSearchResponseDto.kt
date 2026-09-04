@@ -3,7 +3,11 @@ package org.example.amiepackagerepository.shared.integration.github.dto
 import com.fasterxml.jackson.annotation.JsonProperty
 
 /**
- * Internal DTO for GitHub API response items.
+ * Data Transfer Object for the top-level response from the GitHub Search API.
+ *
+ * @property totalCount The total number of items matching the search query.
+ * @property incompleteResults Indicates if the search results are truncated.
+ * @property items The list of [GithubSearchItemDto] matching the query.
  */
 data class GithubSearchResponseDto(
     @JsonProperty("total_count") val totalCount: Int,

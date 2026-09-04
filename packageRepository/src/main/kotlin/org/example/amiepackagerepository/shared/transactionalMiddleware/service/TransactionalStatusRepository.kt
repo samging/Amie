@@ -17,6 +17,14 @@ import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.client.RestClient
 import java.util.concurrent.CompletableFuture
 
+/**
+ * Service that handles transactional repository operations for device statuses.
+ * Manages the orchestration between local database persistence and GitHub repository synchronization.
+ *
+ * @property deviceStatusRepository The local JPA repository for DeviceStatus entities.
+ * @property userRepository The local JPA repository for RestUserEntity entities.
+ * @property simpleService The GitHub service for remote file synchronization.
+ */
 @Service
 class TransactionalStatusRepository(
     private val deviceStatusRepository: DeviceStatusRepository,
@@ -30,6 +38,15 @@ class TransactionalStatusRepository(
         private val logger = LoggerFactory.getLogger(TransactionalStatusRepository::class.java)
     }
 
+    /**
+     * Orchestrates device status updates via a specified action (SET or GET).
+     * Handles local DB operations and remote GitHub synchronization.
+     *
+     * @param action The operation to perform (SET to save, GET to retrieve).
+     * @param username The username associated with the device update.
+     * @param deviceMap A map of device keys to their status DTOs.
+     * @return A CompletableFuture containing the result of the operation as a ResponseEntity.
+     */
     @Async
     @Transactional
     fun repositoryDeviceController(
@@ -126,6 +143,13 @@ class TransactionalStatusRepository(
         }
     }
 
+    /**
+     * Persists device statuses to the local database for a given user.
+     * Clears existing statuses before saving new ones.
+     *
+     * @param username The username for whom statuses are saved.
+     * @param deviceMap A map containing the device data to persist.
+     */
     @Transactional
     fun saveDeviceStatuses(username: String, deviceMap: Map<String, DeviceDto>) {
         val user = userRepository.findByUsername(username) ?: return
@@ -144,6 +168,12 @@ class TransactionalStatusRepository(
         deviceStatusRepository.saveAll(newStatuses)
     }
 
+    /**
+     * Retrieves all device statuses for a specific username from the local database.
+     *
+     * @param username The username to query.
+     * @return A list of [DeviceStatus] entities.
+     */
     fun getDeviceStatuses(username: String): List<DeviceStatus> {
         return deviceStatusRepository.findByUserUsername(username)
     }

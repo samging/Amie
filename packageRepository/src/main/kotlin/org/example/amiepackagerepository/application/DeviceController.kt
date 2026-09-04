@@ -19,6 +19,15 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.client.HttpClientErrorException
 import java.util.concurrent.CompletableFuture
 
+/**
+ * REST Controller for managing device status and compatibility endpoints.
+ * Provides endpoints for saving, retrieving, and syncing device configurations.
+ *
+ * @property driveService Google Drive service instance for file management.
+ * @property simpleService GitHub service instance for repository integration.
+ * @property userService User management service.
+ * @property deviceService Repository for managing transactional device statuses.
+ */
 @CrossOrigin(origins = ["http://localhost:8081"])
 @RestController
 class DeviceController(
@@ -29,6 +38,13 @@ class DeviceController(
 ) {
     private val logger = LoggerFactory.getLogger(DeviceController::class.java)
 
+    /**
+     * Saves device statuses to the local database for a specific user.
+     *
+     * @param username The username for whom statuses are being saved.
+     * @param deviceMap A map of device identifiers to their status details.
+     * @return A status message confirming the save operation.
+     */
     @PostMapping("/device-status")
     fun saveDeviceStatus(
         @RequestParam username: String,
@@ -39,12 +55,23 @@ class DeviceController(
         return "Device statuses saved successfully"
     }
 
+    /**
+     * Retrieves the current device statuses for a specific user from the local database.
+     *
+     * @param username The username whose device statuses are requested.
+     * @return A list of [DeviceStatus] entities.
+     */
     @GetMapping("/device-status")
     fun getDeviceStatus(@RequestParam username: String): List<DeviceStatus> {
         logger.info("--- [GET /device-status] (user: {}) ---", username)
         return deviceService.getDeviceStatuses(username)
     }
 
+    /**
+     * Fetches compatible device endpoints from GitHub.
+     *
+     * @return A map of retail names to descriptive names for compatible devices.
+     */
     @GetMapping("/fetch-endpoints")
     fun getDeviceCompatibility(): Map<String, String>? {
         logger.info("--- [GET /fetch-endpoints] START ---")
@@ -53,6 +80,9 @@ class DeviceController(
         }
     }
 
+    /**
+     * Triggers the publishing of hardcoded device compatibility endpoints to GitHub.
+     */
     @PostMapping("/post-endpoints")
     fun putDeviceCompatibility() {
         logger.info("--- [POST /post-endpoints] START ---")
@@ -60,6 +90,15 @@ class DeviceController(
         logger.info("--- [POST /post-endpoints] END ---")
     }
 
+    /**
+     * Main entry point for complex device repository actions (GET/SET).
+     * Orchestrates synchronization between local storage and remote repositories.
+     *
+     * @param action The desired repository action (SET or GET).
+     * @param username The username associated with the request.
+     * @param deviceMap A map of device keys to status DTOs.
+     * @return A CompletableFuture containing the operation result.
+     */
     @PostMapping("/device-repository-controller")
     fun byActionDeviceController(@RequestParam action: DeviceActions,
                                  @RequestParam username: String = "",

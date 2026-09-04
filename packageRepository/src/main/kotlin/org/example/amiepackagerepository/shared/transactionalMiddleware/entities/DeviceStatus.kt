@@ -11,6 +11,11 @@ import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
 
+/**
+ * JPA Entity representing the status of a device.
+ * Stores information about the device's unique key, name, port, and endpoint.
+ * Each status is associated with a specific user.
+ */
 @Entity
 @Table(name = "device_statuses")
 data class DeviceStatus(

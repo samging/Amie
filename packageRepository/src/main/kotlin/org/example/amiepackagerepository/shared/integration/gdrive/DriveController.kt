@@ -10,6 +10,15 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.io.File
 
+/**
+ * REST Controller for Google Drive operations.
+ * Allows listing and downloading files from a connected Google Drive account.
+ *
+ * @property driveService The authorized Google Drive client.
+ * @property simpleService Internal service for Drive operations logic.
+ * @property userService User management service.
+ * @property deviceService Repository service for device statuses.
+ */
 @CrossOrigin(origins = ["http://localhost:8081"])
 @RestController
 class DriveController(

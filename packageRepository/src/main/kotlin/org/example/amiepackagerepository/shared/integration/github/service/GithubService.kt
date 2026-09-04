@@ -20,6 +20,17 @@ import java.net.URLEncoder
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
 
+/**
+ * Service for interacting with GitHub repositories.
+ * Handles file operations, user dashboards, and search functionalities within GitHub.
+ *
+ * Primary capabilities:
+ * - Listing files and user packages in GitHub repositories.
+ * - Querying files by name or extension (*ext).
+ * - Creating and updating user dashboard READMEs.
+ * - Syncing device status and compatibility endpoints (searchables.json).
+ * - Uploading and editing files via GitHub API.
+ */
 @Service
 @Suppress("NewApi")
 class GithubService {
@@ -33,6 +44,12 @@ class GithubService {
         })
         .build()
 
+    /**
+     * Retrieves a list of all files present in the root "uploads" directory of the GitHub repository.
+     * Uses the GITHUB_TOKEN environment variable for authentication.
+     *
+     * @return A list of [GithubItemDto] representing the files found, or an empty list if an error occurs.
+     */
     fun listFilesGithub(): List<GithubItemDto> {
         logger.info("--- [SimpleService: listFilesGithub] START ---")
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
@@ -80,6 +97,12 @@ class GithubService {
         return emptyList()
     }
 
+    /**
+     * Recursively walks the "uploads/{username}" directory to find all non-markdown files.
+     *
+     * @param username The username whose package directory should be scanned.
+     * @return A flat list of [GithubContentResponseDto] for all files discovered.
+     */
     fun listUserPackages(username: String): List<GithubContentResponseDto> {
         logger.info("--- [SimpleService: listUserPackages] START (user: {}) ---", username)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
@@ -123,6 +146,14 @@ class GithubService {
         return allFiles
     }
 
+    /**
+     * Searches GitHub for files. Supports two modes:
+     * 1. Extension search: If query starts with '*', e.g., '*kt', it looks up searchables.json.
+     * 2. Specific file: Searches for a specific path "uploads/{fileName}.{extension}".
+     *
+     * @param query The search query string.
+     * @return A list of matches or a single [GithubContentResponseDto], or null if not found.
+     */
     fun queryFilesGithub(query: String = ""): Any? {
         logger.info("--- [SimpleService: queryFilesGithub] START (query: {}) ---", query)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
@@ -207,7 +238,13 @@ class GithubService {
         }
     }
 
-
+    /**
+     * Asynchronously ensures a README.md file exists in the user's directory on GitHub.
+     * Acts as a "dashboard" for the user.
+     *
+     * @param rootRepo The name of the repository (defaults to "codeRepository").
+     * @param username The username for whom the dashboard is being created.
+     */
     fun createUserDashboard(rootRepo: String = "codeRepository", username: String) {
         if (username.isEmpty()) return
         logger.info("--- [SimpleService: createUserDashboard] START (user: {}) ---", username)
@@ -267,6 +304,10 @@ class GithubService {
         }
     }
 
+    /**
+     * Publishes a list of hardcoded device endpoints to GitHub as "endpoints.json".
+     * Updates the file if it already exists by fetching its SHA first.
+     */
     fun postEndpoints() {
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
         if (githubToken.isNullOrBlank()) {

@@ -7,6 +7,10 @@ import jakarta.persistence.Id
 import jakarta.persistence.Table
 
 
+/**
+ * JPA Entity representing a user in the system.
+ * Contains core authentication data including username and encrypted password.
+ */
 @Entity
 @Table(name = "users")
 data class RestUserEntity(
