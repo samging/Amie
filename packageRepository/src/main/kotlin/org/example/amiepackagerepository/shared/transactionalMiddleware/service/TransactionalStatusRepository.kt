@@ -1,5 +1,6 @@
 package org.example.amiepackagerepository.shared.transactionalMiddleware.service
 
+import org.springframework.beans.factory.annotation.Value
 import kotlinx.serialization.json.Json
 import org.example.amiepackagerepository.shared.integration.github.service.GithubService
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.DeviceDto
@@ -33,6 +34,19 @@ class TransactionalStatusRepository(
 ) {
     private val restClient = RestClient.create()
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Value("\${amie.github.owner}")
+    private lateinit var owner: String
+
+    @Value("\${amie.github.repo}")
+    private lateinit var name: String
+
+
+    @Value("\${amie.github.github-api-base}")
+    private lateinit var githubApiBase: String
+
+    @Value("\${amie.github.url-segment}")
+    private lateinit var urlSegment: String
 
     companion object {
         private val logger = LoggerFactory.getLogger(TransactionalStatusRepository::class.java)
@@ -76,12 +90,10 @@ class TransactionalStatusRepository(
         return when (action) {
             DeviceActions.SET -> {
                 val githubToken = System.getenv("GITHUB_TOKEN")
-                val repoOwner = "samging"
-                val repoName = "codeRepository"
                 val fileName = "$username-device.json"
 
                 val path = "uploads/$username/$fileName"
-                val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+                val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
 
                 val deviceStatuses = deviceMap.map { (key, device) ->
                     DeviceStatus(
@@ -113,12 +125,10 @@ class TransactionalStatusRepository(
 
             DeviceActions.GET -> {
                 val githubToken = System.getenv("GITHUB_TOKEN")
-                val repoOwner = "samging"
-                val repoName = "codeRepository"
                 val fileName = "$username-device.json"
 
                 val path = "uploads/$username/$fileName"
-                val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+                val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
 
                 try {
                     val response = restClient.get()

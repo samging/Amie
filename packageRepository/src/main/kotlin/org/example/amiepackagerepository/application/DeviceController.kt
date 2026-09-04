@@ -28,7 +28,7 @@ import java.util.concurrent.CompletableFuture
  * @property userService User management service.
  * @property deviceService Repository for managing transactional device statuses.
  */
-@CrossOrigin(origins = ["http://localhost:8081"])
+@CrossOrigin(origins = ["\${amie.cors.allowed-origins}"])
 @RestController
 class DeviceController(
     private val driveService: Drive,

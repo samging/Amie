@@ -43,7 +43,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  * @property userService Authentication and user data service.
  * @property deviceService Service for handling device-related transactional logic.
  */
-@CrossOrigin(origins = ["http://localhost:8081"])
+@CrossOrigin(origins = ["\${amie.cors.allowed-origins}"])
 @RestController
 class GithubController(
     private val driveService: Drive,

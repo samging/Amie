@@ -20,7 +20,7 @@ import javax.crypto.SecretKey
 class UserService(private val restUserRepository: RestUserRepository) {
     private val passwordEncoder = BCryptPasswordEncoder()
     private val log = LoggerFactory.getLogger(UserService::class.java)
-    private val secretKey: SecretKey = Jwts.SIG.HS512.key().build() // Keep existing for now, but will improve logging
+    private val secretKey: SecretKey = Jwts.SIG.HS512.key().build()
 
     /**
      * Checks if a user exists in the database by their username.

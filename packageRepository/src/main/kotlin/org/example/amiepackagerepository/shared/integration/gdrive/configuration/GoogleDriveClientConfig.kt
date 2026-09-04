@@ -7,6 +7,7 @@ import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
 import com.google.auth.http.HttpCredentialsAdapter
 import com.google.auth.oauth2.GoogleCredentials
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.io.File
@@ -17,7 +18,8 @@ import java.util.Collections
  */
 @Configuration
 class GoogleDriveClientConfig {
-
+    @Value("\${amie.local.pkg-lock-file}")
+    private lateinit var packageLock: String
     /**
      * Creates and configures the [Drive] client bean.
      * Supports both Service Account and User Account (OAuth2) credentials.
@@ -25,12 +27,9 @@ class GoogleDriveClientConfig {
     @Bean
     fun connectToDisk(): Drive {
 
-        val configPath = System.getenv("b")
-            ?: "/Users/samuel/Downloads/amieServicePackages.json" // Primary fallbackuy7hj6y6t5grtgr5t5grt5
-
-        val gFile = File(configPath)
+        val gFile = File(packageLock)
         if (!gFile.exists()) {
-            throw IllegalStateException("Credentials file not found at $configPath. Please check AMIE_GDISK_OA env var.")
+            throw IllegalStateException("Credentials file not found at $packageLock. Please check AMIE_GDISK_OA env var.")
         }
 
         val credentials = try {
@@ -39,7 +38,7 @@ class GoogleDriveClientConfig {
         } catch (e: Exception) {
             if (e.message?.contains("type") == true) {
                 throw IllegalStateException(
-                    "The file at $configPath is an OAuth Client ID file, but this service currently expects a Service Account key. " +
+                    "The file at $packageLock is an OAuth Client ID file, but this service currently expects a Service Account key. " +
                             "Please point AMIE_GDISK_OA to '/Users/samuel/Downloads/amieServicePackages.json' instead.", e
                 )
             }

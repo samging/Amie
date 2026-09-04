@@ -1,5 +1,6 @@
 package org.example.amiepackagerepository.shared.integration.github.service
 
+import org.springframework.beans.factory.annotation.Value
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import org.example.amiepackagerepository.shared.integration.github.dto.GithubContentResponseDto
@@ -36,6 +37,21 @@ import java.util.concurrent.CompletableFuture
 class GithubService {
     private val logger = LoggerFactory.getLogger(GithubService::class.java)
 
+    @Value("\${amie.github.owner}")
+    private lateinit var owner: String
+
+    @Value("\${amie.github.repo}")
+    private lateinit var name: String
+
+    @Value("\${amie.github.base-path}")
+    private lateinit var path: String
+
+    @Value("\${amie.github.github-api-base}")
+    private lateinit var githubApiBase: String
+
+    @Value("\${amie.github.url-segment}")
+    private lateinit var urlSegment: String
+
     private val json = Json { ignoreUnknownKeys = true }
     private val restClient = RestClient.builder()
         .requestFactory(SimpleClientHttpRequestFactory().apply {
@@ -61,10 +77,10 @@ class GithubService {
             logger.warn("GITHUB_TOKEN is NULL in environment")
         }
 
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
-        val path = "uploads"
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+
+
+
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
         var response: ResponseEntity<List<GithubContentResponseDto>>? = null
 
         try {
@@ -106,8 +122,6 @@ class GithubService {
     fun listUserPackages(username: String): List<GithubContentResponseDto> {
         logger.info("--- [SimpleService: listUserPackages] START (user: {}) ---", username)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
         val rootPath = "uploads/$username"
 
         val allFiles = mutableListOf<GithubContentResponseDto>()
@@ -117,7 +131,7 @@ class GithubService {
             val encodedPath = path.split("/").joinToString("/") {
                 URLEncoder.encode(it, "UTF-8").replace("+", "%20")
             }
-            val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
+            val url = "$githubApiBase/$owner/$name/$urlSegment/$encodedPath"
             try {
                 val response = restClient.get()
                     .uri(url)
@@ -157,15 +171,13 @@ class GithubService {
     fun queryFilesGithub(query: String = ""): Any? {
         logger.info("--- [SimpleService: queryFilesGithub] START (query: {}) ---", query)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
 
         // --- NEW: Extension-based Search (*ext) ---
         if (query.trim().startsWith("*")) {
             val extension = query.trim().removePrefix("*").lowercase()
             logger.info("GITHUB: Performing extension-based search for '.{}'", extension)
 
-            val dirTreeUrl = "https://api.github.com/repos/$repoOwner/$repoName/contents/uploads/searchables.json"
+            val dirTreeUrl = "$githubApiBase/$owner/$name/$urlSegment/uploads/searchables.json"
             return try {
                 logger.info("Fetching searchables.json from: {}", dirTreeUrl)
                 val response = restClient.get()
@@ -190,9 +202,9 @@ class GithubService {
                 matches.map {
                     mapOf(
                         "name" to it.url.substringAfterLast("/"),
-                        "path" to it.url.substringAfter("repos/$repoOwner/$repoName/contents/"),
+                        "path" to it.url.substringAfter("repos/$owner/$name/$urlSegment/"),
                         "type" to "file",
-                        "download_url" to it.url.replace("api.github.com/repos", "raw.githubusercontent.com").replace("/contents/", "/main/"),
+                        "download_url" to it.url.replace("api.github.com/repos", "raw.githubusercontent.com").replace("/$urlSegment/", "/main/"),
                         "size" to 0
                     )
                 }.also { logger.info("--- [SimpleService: queryFilesGithub] END (Success) ---") }
@@ -215,7 +227,7 @@ class GithubService {
             URLEncoder.encode(it, "UTF-8").replace("+", "%20")
         }
 
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$encodedPath"
         logger.info("Generated GitHub API URL for specific file: {}", url)
 
         return try {
@@ -250,13 +262,12 @@ class GithubService {
         logger.info("--- [SimpleService: createUserDashboard] START (user: {}) ---", username)
 
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
-        val repoOwner = "samging"
 
         val rawPath = "uploads/$username/README.md"
         val encodedPath = rawPath.split("/").joinToString("/") {
             URLEncoder.encode(it, "UTF-8").replace("+", "%20")
         }
-        val url = "https://api.github.com/repos/$repoOwner/$rootRepo/contents/$encodedPath"
+        val url = "$githubApiBase/$owner/$rootRepo/$urlSegment/$encodedPath"
 
         CompletableFuture.runAsync {
             try {
@@ -316,10 +327,8 @@ class GithubService {
         }
         logger.info("--- [SimpleService: postEndpoints] START ---")
 
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
         val path = "repositoryInformations"
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
 
         val encodedJson = json.encodeToJsonElement(listOf(
             GithubEndpointDto("Arduino Uno", "Arduino uno more descriptive"),
@@ -365,10 +374,8 @@ class GithubService {
     fun fetchEndpoints(): Map<String, String> {
         logger.info("--- [SimpleService: fetchEndpoints] START ---")
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
         val path = "repositoryInformations"
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
 
         try {
             logger.info("Fetching endpoints from GitHub: {}", url)
@@ -411,8 +418,6 @@ class GithubService {
         logger.info("--- [SimpleService: uploadFile] START (user: {}, lang: {}, file: {}) ---", username, progLanguage, file.originalFilename)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
         val fileName = file.originalFilename ?: "unnamed_file"
 
         val safeUsername = URLEncoder.encode(username.trim(), "UTF-8").replace("+", "%20")
@@ -420,7 +425,7 @@ class GithubService {
         val safeFileName = URLEncoder.encode(fileName.trim(), "UTF-8").replace("+", "%20")
 
         val path = if (username.isNotBlank()) "uploads/$safeUsername/$safeLang/$safeFileName" else "uploads/$safeLang/$safeFileName"
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
         val contentBase64 = Base64.getEncoder().encodeToString(file.bytes)
 
         var existingSha: String? = null
@@ -444,7 +449,7 @@ class GithubService {
         }
 
         try {
-            val dirTreeUrl: String = "https://api.github.com/repos/$repoOwner/$repoName/contents/uploads/searchables.json"
+            val dirTreeUrl: String = "$githubApiBase/$owner/$name/$urlSegment/uploads/searchables.json"
 
             fun patchSearchTree(body: String, sha: String? = null): ResponseEntity<String> {
                 logger.info("GITHUB: Attempting to update search tree at {}", dirTreeUrl)
@@ -597,10 +602,8 @@ class GithubService {
     fun writeError(username: String, error: String, message: String) {
         logger.info("Logging error for user '{}': [{}] {}", username, error, message)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
         val path = "uploads/$username/errors.md"
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
         val contentBase64 = Base64.getEncoder().encodeToString("[$error]: $message".toByteArray())
         val existingSha = fetchFileSha(url, githubToken)
 
@@ -630,8 +633,6 @@ class GithubService {
     fun sendEdit(username: String, fileName: String, updateFile: MultipartFile) {
         logger.info("--- [SimpleService: sendEdit] START (user: {}, file: {}) ---", username, fileName)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
 
         val path = if (username.isNotBlank()) "uploads/$username/$fileName" else "uploads/$fileName"
 
@@ -639,7 +640,7 @@ class GithubService {
         val encodedPath = path.split("/").joinToString("/") {
             URLEncoder.encode(it, "UTF-8").replace("+", "%20")
         }
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$encodedPath"
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$encodedPath"
 
         try {
             logger.info("Fetching metadata for file to update: {}", url)
@@ -680,10 +681,8 @@ class GithubService {
     fun uploadFileData(username: String, fileName: String, data: ByteArray) {
         logger.info("--- [SimpleService: uploadFileData] START (user: {}, file: {}) ---", username, fileName)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
-        val repoOwner = "samging"
-        val repoName = "codeRepository"
         val path = "uploads/$username/$fileName"
-        val url = "https://api.github.com/repos/$repoOwner/$repoName/contents/$path"
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
         val contentBase64 = Base64.getEncoder().encodeToString(data)
 
         var existingSha: String? = null

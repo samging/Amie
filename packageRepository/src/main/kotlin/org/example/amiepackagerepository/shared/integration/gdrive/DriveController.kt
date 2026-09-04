@@ -4,6 +4,7 @@ import com.google.api.services.drive.Drive
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.TransactionalStatusRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -19,7 +20,7 @@ import java.io.File
  * @property userService User management service.
  * @property deviceService Repository service for device statuses.
  */
-@CrossOrigin(origins = ["http://localhost:8081"])
+@CrossOrigin(origins = ["\${amie.cors.allowed-origins}"])
 @RestController
 class DriveController(
     private val driveService: Drive,
@@ -28,6 +29,9 @@ class DriveController(
     private val deviceService: TransactionalStatusRepository
 ) {
     private val logger = LoggerFactory.getLogger(DriveController::class.java)
+
+    @Value("\${amie.local.download-path}")
+    private lateinit var downloadPath: String
 
     /**
      * Retrieves a formatted list of all files present in the Google Drive.
@@ -49,7 +53,7 @@ class DriveController(
     fun downloadFile(@RequestParam fileName: String = "welcome-message"): String {
         logger.info("--- [GET /download] START (fileName: {}) ---", fileName)
         val userHome = System.getProperty("user.home")
-        val destinationFile = File(userHome, "Downloads/amiePackagesDownload/$fileName")
+        val destinationFile = File(userHome, "$downloadPath$fileName")
 
         return try {
             simpleService.downloadFile(driveService, fileName, destinationFile)

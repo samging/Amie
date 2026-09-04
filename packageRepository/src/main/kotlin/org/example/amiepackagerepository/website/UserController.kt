@@ -27,7 +27,7 @@ import org.springframework.web.server.ResponseStatusException
  * - Token validation for protected resources.
  * - Searching and listing user packages from GitHub.
  */
-@CrossOrigin(origins = ["http://localhost:8081"])
+@CrossOrigin(origins = ["\${amie.cors.allowed-origins}"])
 @RestController
 class UserController(
     private val driveService: Drive,
