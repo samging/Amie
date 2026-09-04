@@ -1,10 +1,10 @@
 package org.example.amiepackagerepository.website
 
 import com.google.api.services.drive.Drive
-import org.example.amiepackagerepository.controllers.integrations.github.GithubService
-import org.example.amiepackagerepository.controllers.integrations.github.dto.GithubContentResponseDto
-import org.example.amiepackagerepository.service.user.service.UserService
-import org.example.amiepackagerepository.transactionalMiddleware.TransactionalStatusRepository
+import org.example.amiepackagerepository.shared.integration.github.dto.GithubContentResponseDto
+import org.example.amiepackagerepository.shared.integration.github.service.GithubService
+import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
+import org.example.amiepackagerepository.shared.transactionalMiddleware.service.TransactionalStatusRepository
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.CrossOrigin

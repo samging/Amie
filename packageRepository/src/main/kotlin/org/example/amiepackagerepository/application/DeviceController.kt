@@ -1,12 +1,12 @@
 package org.example.amiepackagerepository.application
 
 import com.google.api.services.drive.Drive
-import org.example.amiepackagerepository.controllers.integrations.github.GithubService
-import org.example.amiepackagerepository.service.user.service.UserService
-import org.example.amiepackagerepository.transactionalMiddleware.DeviceActions
-import org.example.amiepackagerepository.transactionalMiddleware.DeviceDto
-import org.example.amiepackagerepository.transactionalMiddleware.TransactionalStatusRepository
-import org.example.amiepackagerepository.transactionalMiddleware.entities.entities.DeviceStatus
+import org.example.amiepackagerepository.shared.integration.github.service.GithubService
+import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
+import org.example.amiepackagerepository.shared.transactionalMiddleware.enumerables.DeviceActions
+import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.DeviceDto
+import org.example.amiepackagerepository.shared.transactionalMiddleware.service.TransactionalStatusRepository
+import org.example.amiepackagerepository.shared.transactionalMiddleware.entities.DeviceStatus
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
