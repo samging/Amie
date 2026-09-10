@@ -2,9 +2,9 @@ do api for the google disk
 
 Runs on kobweb, before run you must export JAVA_HOME env along with GITHUB_TOKEN in order to run locally.
 # Start Backend
-./gradlew bootRun -Dorg.gradle.jvmargs="-Xmx2g" &
+```./gradlew bootRun -Dorg.gradle.jvmargs="-Xmx2g" &```
 # Start Frontend
-./gradlew :site:kobwebStart &
+```./gradlew :site:kobwebStart &```
 
 
 ## About Project Amie
