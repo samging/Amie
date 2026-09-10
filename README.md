@@ -1,5 +1,12 @@
 do api for the google disk
 
+Runs on kobweb, before run you must export JAVA_HOME env along with GITHUB_TOKEN in order to run locally.
+# Start Backend
+./gradlew bootRun -Dorg.gradle.jvmargs="-Xmx2g" &
+# Start Frontend
+./gradlew :site:kobwebStart &
+
+
 ## About Project Amie
 
 Project Amie was created to simplify Arduino board management and bridge the gap between microcontrollers and cloud computing platforms. 
