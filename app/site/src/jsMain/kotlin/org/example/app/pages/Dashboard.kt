@@ -95,7 +95,7 @@ fun Dashboard() {
                     println("DEBUG: Package Response Length: ${pkgText.length}")
                     if (pkgText.isNotEmpty()) {
                         val json = JSON.parse<dynamic>(pkgText)
-                        loadedPackages = if (js("Array.isArray(json)") as Boolean) (json as Array<Json>).toList() else listOf(json as Json)
+                        loadedPackages = if (js("Array.isArray(json)") as Boolean) (json.unsafeCast<Array<Json>>()).toList() else listOf(json.unsafeCast<Json>())
                         DashboardCache.packageData = DashboardCache.packageData.toMutableMap().apply { put(username, loadedPackages) }
                         println("DEBUG: Updated loadedPackages (${loadedPackages.size} items)")
                     }
@@ -107,7 +107,7 @@ fun Dashboard() {
                     println("DEBUG: Device Response Length: ${deviceText.length}")
                     if (deviceText.isNotEmpty()) {
                         val json = JSON.parse<dynamic>(deviceText)
-                        deviceStatuses = if (js("Array.isArray(json)") as Boolean) (json as Array<Json>).toList() else emptyList()
+                        deviceStatuses = if (js("Array.isArray(json)") as Boolean) (json.unsafeCast<Array<Json>>()).toList() else emptyList()
                         DashboardCache.deviceData = DashboardCache.deviceData.toMutableMap().apply { put(username, deviceStatuses) }
                         println("DEBUG: Updated deviceStatuses (${deviceStatuses.size} items)")
                     }
