@@ -17,6 +17,9 @@ import org.jetbrains.compose.web.css.px
 import org.jetbrains.compose.web.css.percent
 import org.jetbrains.compose.web.css.LineStyle
 import org.jetbrains.compose.web.css.Color
+import org.jetbrains.compose.web.css.DisplayStyle
+import org.jetbrains.compose.web.css.JustifyContent
+import org.jetbrains.compose.web.css.AlignItems
 import org.jetbrains.compose.web.dom.*
 import kotlin.js.Json
 
@@ -122,7 +125,18 @@ fun Dashboard() {
     }
 
     Div(Modifier.padding(24.px).toAttrs()) {
-        H1 { Text("Logged into: $username") }
+        Div(Modifier.display(DisplayStyle.Flex).justifyContent(JustifyContent.SpaceBetween).alignItems(AlignItems.Center).toAttrs()) {
+            H1 { Text("Logged into: $username") }
+            Button(
+                attrs = Modifier.toAttrs {
+                    onClick {
+                        ctx.router.navigateTo("/profile")
+                    }
+                }
+            ) {
+                Text("View Profile")
+            }
+        }
 
         if (delResp.isNotEmpty()) {
             P(Modifier.color(Color.blue).toAttrs()) { Text(delResp) }

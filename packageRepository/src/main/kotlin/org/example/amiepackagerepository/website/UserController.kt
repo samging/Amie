@@ -3,8 +3,10 @@ package org.example.amiepackagerepository.website
 import com.google.api.services.drive.Drive
 import org.example.amiepackagerepository.shared.integration.github.dto.GithubContentResponseDto
 import org.example.amiepackagerepository.shared.integration.github.service.GithubService
+import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileUpdateDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.TransactionalStatusRepository
+import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.CrossOrigin
@@ -66,6 +68,7 @@ class UserController(
 
         userService.createUser(username, password)
         simpleService.createUserDashboard(username = username)
+        userService.logActivity(username, "REGISTER", "User registered: $username")
 
         logger.info("User registered successfully: {}", username)
         logger.info("--- [POST /register] END ---")
@@ -101,6 +104,7 @@ class UserController(
             userService.grantUserToken(username)
             println("USER TOKEN GENERATED")
             simpleService.createUserDashboard(username = username)
+            userService.logActivity(username, "LOGIN", "User logged in: $username")
         } catch (e: Exception) {
             logger.error("Dashboard creation non-fatal error: {}", e.message)
         }
@@ -146,6 +150,8 @@ class UserController(
         val username = claims.subject
         val userId = (claims["userId"] as? Number)?.toLong() ?: -1L
 
+        userService.logActivity(username, "ACCESS_DASHBOARD", "User accessed dashboard")
+
         logger.info("Dashboard validation successful for user: {} (ID: {})", username, userId)
         logger.info("--- [GET /dashboard] END ---")
         return "Welcome to your dashboard, $username (ID: $userId)!"
@@ -185,5 +191,35 @@ class UserController(
     fun getUserPackages(@RequestParam username: String): List<GithubContentResponseDto> {
         logger.info("--- [GET /user-packages] START (user: {}) ---", username)
         return simpleService.listUserPackages(username).also { logger.info("--- [GET /user-packages] END ---") }
+    }
+
+    /**
+     * Retrieves the profile of a user.
+     */
+    @GetMapping("/profile")
+    fun getProfile(@RequestParam username: String): RestUserEntity {
+        logger.info("--- [GET /profile] START (user: {}) ---", username)
+        return userService.getProfile(username) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found")
+    }
+
+    /**
+     * Updates the profile of a user.
+     */
+    @PostMapping("/profile")
+    fun updateProfile(
+        @RequestBody profileDto: ProfileUpdateDto,
+        @RequestParam username: String,
+        @RequestHeader("Authorization") authHeader: String
+    ): String {
+        logger.info("--- [POST /profile] START (user: {}) ---", username)
+        val token = authHeader.removePrefix("Bearer ")
+        val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
+        
+        if (claims.subject != username) {
+            throw ResponseStatusException(HttpStatus.FORBIDDEN)
+        }
+
+        userService.updateProfile(username, profileDto)
+        return "Profile updated successfully"
     }
 }

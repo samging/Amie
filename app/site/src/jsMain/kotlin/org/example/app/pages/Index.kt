@@ -99,7 +99,13 @@ fun IndexPage() {
     }
 
     Div(
-        attrs = Modifier.padding(24.px).fillMaxWidth().backgroundColor(Color.black).toAttrs()
+        attrs = Modifier
+            .padding(24.px)
+            .fillMaxWidth()
+            .minHeight(100.vh)
+            .backgroundColor(Color.black)
+            .color(Color.white)
+            .toAttrs()
     ) {
         Div(Modifier.margin(bottom = 10.px).display(DisplayStyle.Flex).justifyContent(JustifyContent.SpaceBetween).toAttrs()) {
             Img(src = "/svglogo.svg", attrs = Modifier.size(width = 652.px, height = 142.px).toAttrs())

@@ -2,11 +2,15 @@ package org.example.amiepackagerepository.shared.transactionalMiddleware.service
 
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
+import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileUpdateDto
+import org.example.amiepackagerepository.shared.transactionalMiddleware.entities.UserActivity
+import org.example.amiepackagerepository.shared.transactionalMiddleware.repository.UserActivityRepository
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.repository.RestUserRepository
 import org.slf4j.LoggerFactory
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Service
+import java.time.LocalDateTime
 import java.util.Date
 import javax.crypto.SecretKey
 
@@ -17,7 +21,10 @@ import javax.crypto.SecretKey
  * @property restUserRepository The JPA repository for user data persistence.
  */
 @Service
-class UserService(private val restUserRepository: RestUserRepository) {
+class UserService(
+    private val restUserRepository: RestUserRepository,
+    private val userActivityRepository: UserActivityRepository
+) {
     private val passwordEncoder = BCryptPasswordEncoder()
     private val log = LoggerFactory.getLogger(UserService::class.java)
     private val secretKey: SecretKey = Jwts.SIG.HS512.key().build()
@@ -45,7 +52,7 @@ class UserService(private val restUserRepository: RestUserRepository) {
             password = hashedPassword
         )
         log.debug("User created: {}", user.username)
-        restUserRepository.save(RestUserEntity(username = user.username, password = user.password))
+        restUserRepository.save(user)
     }
 
     /**
@@ -157,5 +164,40 @@ class UserService(private val restUserRepository: RestUserRepository) {
             log.warn("Token is invalid: {}", e.message)
             return null
         }
+    }
+
+    /**
+     * Updates the user profile.
+     */
+    fun updateProfile(username: String, profileDto: ProfileUpdateDto) {
+        val user = restUserRepository.findByUsername(username) ?: throw IllegalArgumentException("User not found")
+        val updatedUser = user.copy(
+            fullName = profileDto.fullName,
+            email = profileDto.email,
+            bio = profileDto.bio
+        )
+        restUserRepository.save(updatedUser)
+        logActivity(username, "UPDATE_PROFILE", "Updated profile for $username")
+    }
+
+    /**
+     * Logs a user activity.
+     */
+    fun logActivity(username: String, actionType: String, details: String = "") {
+        val user = restUserRepository.findByUsername(username)
+        val activity = UserActivity(
+            actionType = actionType,
+            details = details,
+            timestamp = LocalDateTime.now(),
+            user = user
+        )
+        userActivityRepository.save(activity)
+    }
+
+    /**
+     * Retrieves the profile of a user.
+     */
+    fun getProfile(username: String): RestUserEntity? {
+        return restUserRepository.findByUsername(username)
     }
 }

@@ -38,7 +38,7 @@ data class GenericApiResponse(
 @Page("loginpage")
 @Composable
 fun Loginpage() {
-
+    
     var name by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var loadedPackages by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -97,6 +97,11 @@ fun Loginpage() {
             Button(
                 attrs = Modifier.toAttrs {
                     onClick {
+                        println("Login button clicked.")
+                        println("Username entered: $name")
+                        println("Password length: ${password.length}")
+                        println("Redirecting to OAuthPage (/oauthpage) with credentials...")
+                        /*
                         if (name.isNotEmpty() && password.isNotEmpty()) {
                             scope.launch {
                                 val requestBody = Json.encodeToString(
@@ -143,6 +148,8 @@ fun Loginpage() {
                         } else {
                             println("Please enter both username and password")
                         }
+                        */
+                        ctx.router.navigateTo("/oauthpage?username=$name&password=$password")
                     }
                 }
             ) {

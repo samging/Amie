@@ -18,6 +18,9 @@ data class RestUserEntity(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long = 0,
     val username: String = "",
-    val password: String = ""
+    val password: String = "",
+    val fullName: String = "",
+    val email: String = "",
+    val bio: String = ""
 )
 

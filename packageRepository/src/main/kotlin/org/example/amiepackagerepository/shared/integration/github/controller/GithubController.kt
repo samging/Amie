@@ -117,6 +117,7 @@ class GithubController(
 
         return try {
             simpleService.uploadFile(username, progLanguage, file)
+            userService.logActivity(username, "UPLOAD_PACKAGE", "Uploaded package: ${file.originalFilename}")
             logger.info("CONTROLLER: Upload successful for user '{}', file '{}'", username, file.originalFilename)
             "File uploaded successfully"
         } catch (e: GoogleJsonResponseException) {
@@ -146,6 +147,7 @@ class GithubController(
             DeviceActions.SET, deviceUpdateDto.username, deviceUpdateDto.deviceMap
         ).await()
         if (response.statusCode == HttpStatus.OK){
+            userService.logActivity(deviceUpdateDto.username, "UPDATE_DEVICE_STATUS", "Updated device statuses")
             logger.info("Device update successful for user: ${deviceUpdateDto.username}")
         } else {
             logger.error("Device update failed for user: ${deviceUpdateDto.username} \n Response: ${response.body} \n -with status code: ${response.statusCode}")
@@ -228,6 +230,7 @@ class GithubController(
 
         return try {
             simpleService.sendEdit(username, fileName, file)
+            userService.logActivity(username, "EDIT_PACKAGE", "Edited package: $fileName")
             "File updated successfully"
         } catch (e: Exception) {
             logger.error("Edit Error: {}", e.message)
