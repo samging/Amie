@@ -86,11 +86,11 @@ fun getUserSessionFromLocalStorage(): UserSession? {
         null
     }
 }
-val keycloakAuthUrl = "http://localhost:8080/realms/master/protocol/openid-connect/auth" +
+val keycloakAuthUrl = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/auth" +
         "?client_id=amie" +
         "&response_type=code" +
         "&scope=openid%20profile%20email" +
-        "&redirect_uri=${URLBuilder("http://localhost:8081/oauthpage").buildString()}"
+        "&redirect_uri=${URLBuilder("http://192.168.1.114:8081/oauthpage").buildString()}"
 
 @Page("oauthpage")
 @Composable
@@ -274,7 +274,7 @@ suspend fun validateJwt(token: String): Boolean {
         // 2. Validate Issuer (iss)
         val issuer = payloadJson["iss"]?.jsonPrimitive?.content
         println("Validating Issuer: $issuer")
-        if (issuer != "http://localhost:8080/realms/master") {
+        if (issuer != "http://192.168.1.114:8080/realms/master") {
             println("Validation Error: Invalid Issuer ($issuer)")
             return false
         }
@@ -309,7 +309,7 @@ suspend fun validateJwt(token: String): Boolean {
 
 
 suspend fun getJwks(): JwksResponse {
-    val jwksEndpoint = "http://localhost:8080/realms/master/protocol/openid-connect/certs"
+    val jwksEndpoint = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/certs"
     println("getJwks calling endpoint: $jwksEndpoint")
     try {
         val result = httpClient.get(jwksEndpoint).body<JwksResponse>()
@@ -335,7 +335,7 @@ suspend fun exchangeCodeForTokens(
     username: String? = null,
     password: String? = null
 ): TokenResponse {
-    val tokenEndpoint = "http://localhost:8080/realms/master/protocol/openid-connect/token"
+    val tokenEndpoint = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/token"
 
     println("exchangeCodeForTokens called:")
     println(" - code: $authorizationCode")
@@ -357,7 +357,7 @@ suspend fun exchangeCodeForTokens(
             append("client_id", "amie")
             append("client_secret", "")
             append("code", authorizationCode ?: "")
-            append("redirect_uri", "http://localhost:8081/oauthpage")
+            append("redirect_uri", "http://192.168.1.114:8081/oauthpage")
         }
     }
 

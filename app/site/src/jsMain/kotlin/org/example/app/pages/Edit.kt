@@ -133,7 +133,7 @@ fun EditPage() {
                                 options["headers"] = headers
 
                                 println("DEBUG: Submitting update for '$packageName' as user '$username'")
-                                val response = window.fetch("http://localhost:8080/edit", options).await()
+                                val response = window.fetch("http://192.168.1.114:8080/edit", options).await()
                                 println("DEBUG: Update response status: ${response.status}")
                                 
                                 if (response.ok) {

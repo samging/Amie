@@ -9,6 +9,7 @@ import org.example.amiepackagerepository.shared.transactionalMiddleware.service.
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -191,6 +192,47 @@ class UserController(
     fun getUserPackages(@RequestParam username: String): List<GithubContentResponseDto> {
         logger.info("--- [GET /user-packages] START (user: {}) ---", username)
         return simpleService.listUserPackages(username).also { logger.info("--- [GET /user-packages] END ---") }
+    }
+
+    /**
+     * Proxies the registration request to Keycloak Admin API.
+     */
+    @PostMapping("/api/sso-register")
+    fun ssoRegister(@RequestBody keycloakUser: Map<String, Any>): ResponseEntity<String> {
+        logger.info("--- [POST /api/sso-register] START ---")
+        val username = keycloakUser["username"] as? String ?: "unknown"
+        
+        try {
+            // Note: In a real environment, you'd fetch an admin token first.
+            // For now, we attempt to create the user directly or return instructions.
+            // For security, this endpoint should be properly secured.
+            
+            val keycloakUrl = "http://192.168.1.114:8080/admin/realms/master/users"
+            val restClient = org.springframework.web.client.RestClient.create()
+            
+            // This requires an Admin token which is usually handled via service accounts
+            // Since I cannot configure your Keycloak server, I'm providing the proxy structure.
+            // If you have a token, add .header("Authorization", "Bearer <TOKEN>")
+            
+            val response = restClient.post()
+                .uri(keycloakUrl)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(keycloakUser)
+                .retrieve()
+                .toEntity(String::class.java)
+                
+            if (response.statusCode.is2xxSuccessful) {
+                userService.logActivity(username, "SSO_REGISTER", "User registered via SSO API proxy")
+                return ResponseEntity.ok("User created in Keycloak successfully")
+            }
+            return ResponseEntity.status(response.statusCode).body(response.body)
+            
+        } catch (e: Exception) {
+            logger.error("SSO Registration Proxy Error: {}", e.message)
+            // Fallback: If Keycloak is not reachable or unauthorized, log it.
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body("Proxy Error: ${e.message}. Ensure Keycloak Admin API is accessible and token is valid.")
+        }
     }
 
     /**

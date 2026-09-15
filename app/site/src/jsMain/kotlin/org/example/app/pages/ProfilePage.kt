@@ -48,7 +48,7 @@ fun ProfilePage() {
 
         isLoading = true
         try {
-            val response = window.fetch("http://localhost:8080/profile?username=$username").await()
+            val response = window.fetch("http://192.168.1.114:8080/profile?username=$username").await()
             if (response.ok) {
                 val jsonText = response.text().await()
                 val json = Json.parseToJsonElement(jsonText).jsonObject
@@ -149,7 +149,7 @@ fun ProfilePage() {
                                 headers["Authorization"] = "Bearer $token"
                                 options["headers"] = headers
 
-                                val response = window.fetch("http://localhost:8080/profile?username=$username", options).await()
+                                val response = window.fetch("http://192.168.1.114:8080/profile?username=$username", options).await()
                                 if (response.ok) {
                                     statusMessage = "Profile updated successfully!"
                                 } else {

@@ -57,7 +57,7 @@ fun Navigateto() {
                 val options = js("{}")
                 options["headers"] = headers
 
-                val response = window.fetch("http://localhost:8080/dashboard", options).await()
+                val response = window.fetch("http://192.168.1.114:8080/dashboard", options).await()
 
                 if (response.ok) {
                     val text = response.text().await()
@@ -254,7 +254,7 @@ fun Navigateto() {
                                 options["headers"] = headers
 
                                 val response =
-                                    window.fetch("http://localhost:8080/upload", options).await()
+                                    window.fetch("http://192.168.1.114:8080/upload", options).await()
 
                                 if (response.ok) {
                                     val result = response.text().await()

@@ -212,7 +212,7 @@ fun ViewPage() {
                     abortController.abort()
                     deferredJob?.cancel()
                     
-                    ctx.router.navigateTo("/")
+                    window.location.href = "/"
                 }
             })) {
                 Text("← Back")

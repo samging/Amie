@@ -23,8 +23,8 @@ import org.jetbrains.compose.web.css.AlignItems
 import org.jetbrains.compose.web.dom.*
 import kotlin.js.Json
 
-private const val DASHBOARD_URL = "http://localhost:8080/dashboard"
-private const val DELETE_PACKAGE_URL = "http://localhost:8081/api/delete-package"
+private const val DASHBOARD_URL = "http://192.168.1.114:8080/dashboard"
+private const val DELETE_PACKAGE_URL = "http://192.168.1.114:8081/api/delete-package"
 private const val NAVIGATE_TO_UPLOAD = "/navigateto?username="
 
 // Simple in-memory cache to prevent re-fetching on every navigation

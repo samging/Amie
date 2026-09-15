@@ -26,9 +26,9 @@ import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLQueryComponent
 
-private const val DASHBOARD_URL = "http://localhost:8080/dashboard"
-private const val LIST_GITHUB_URL = "http://localhost:8080/list-github"
-private const val QUERY_URL = "http://localhost:8080/query?query="
+private const val DASHBOARD_URL = "http://192.168.1.114:8080/dashboard"
+private const val LIST_GITHUB_URL = "http://192.168.1.114:8080/list-github"
+private const val QUERY_URL = "http://192.168.1.114:8080/query?query="
 
 private object ExplorerCache {
     var packages: List<Json>? = null
@@ -129,7 +129,7 @@ fun IndexPage() {
                     Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
                         onClick {
                             println("DEBUG: Navigating to dashboard for $loggedInUser")
-                            ctx.router.navigateTo("/dashboard?username=$loggedInUser")
+                            window.location.href = "/dashboard?username=$loggedInUser"
                         }
                     }) {
                         Text("Logged in as $loggedInUser")
@@ -138,7 +138,7 @@ fun IndexPage() {
                     Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
                         onClick {
                             println("DEBUG: Navigating to login page")
-                            ctx.router.navigateTo("/loginpage")
+                            window.location.href = "/loginpage"
                         }
                     }) {
                         Text("Login")
@@ -238,7 +238,7 @@ fun IndexPage() {
                                     Button(attrs = Modifier.toAttrs {
                                         onClick {
                                             println("DEBUG: Navigating to dashboard for author: $rawName")
-                                            ctx.router.navigateTo("/dashboard?username=$rawName")
+                                            window.location.href = "/dashboard?username=$rawName"
                                         }
                                     }) {
                                         Text("View Author's Packages")
@@ -306,17 +306,7 @@ fun IndexPage() {
                                                 println("DEBUG: Navigating to View route for: ${encodedPath} + ${encodedUrl}")
 
                                                 val viewRoute = "/view?package=$encodedPath&username=$owner&from=aboutss&url=$encodedUrl"
-                                                val parsedUrl = io.ktor.http.Url(viewRoute)
-                                                val decodedUrl = parsedUrl.parameters["url"] ?: ""
-
-                                                println("EPIC MAGIC: $decodedUrl")
-
-                                                val queryString = viewRoute.substringAfter('?', missingDelimiterValue = "")
-                                                val searchParams = js("new URLSearchParams(queryString)")
-                                                val pkgParam = searchParams.get("package") as? String
-
-                                                ctx.router.navigateTo(viewRoute)
-
+                                                window.location.href = viewRoute
                                             }
                                         })
                                     ) { Text("View") }
@@ -346,7 +336,7 @@ fun IndexPage() {
             attrs = Modifier.margin(top = 40.px).toAttrs {
                 onClick {
                     println("DEBUG: Navigating to Upload page")
-                    ctx.router.navigateTo("/navigateto")
+                    window.location.href = "/navigateto"
                 }
             }
         ) {

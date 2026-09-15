@@ -158,6 +158,41 @@ fun Loginpage() {
         }
 
         Div() {
+            Button(
+                attrs = Modifier.toAttrs {
+                    onClick {
+                        window.location.href = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/registrations" +
+                                "?client_id=amie" +
+                                "&response_type=code" +
+                                "&scope=openid" +
+                                "&redirect_uri=http://192.168.1.114:8081/oauthpage"
+                    }
+                }
+            )
+            {
+                Text("Register with Keycloak SSO")
+            }
+        }
+
+        Div() {
+            Button(
+                attrs = Modifier.toAttrs {
+                    onClick {
+                        window.location.href = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/auth" +
+                                "?client_id=amie" +
+                                "&response_type=code" +
+                                "&scope=openid" +
+                                "&redirect_uri=http://192.168.1.114:8081/oauthpage" +
+                                "&kc_action=reset_password"
+                    }
+                }
+            )
+            {
+                Text("Forgot Password?")
+            }
+        }
+
+        Div() {
 
             Button(
                 attrs = Modifier.toAttrs {
@@ -167,7 +202,7 @@ fun Loginpage() {
                 }
             )
             {
-                Text("Register")
+                Text("Local Register")
             }
         }
 
