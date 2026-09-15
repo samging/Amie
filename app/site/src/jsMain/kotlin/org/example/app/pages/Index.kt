@@ -3,6 +3,8 @@ package org.example.app.pages
 import androidx.compose.runtime.*
 import androidx.compose.runtime.NoLiveLiterals
 import com.varabyte.kobweb.browser.api
+import com.varabyte.kobweb.compose.css.FontWeight
+import com.varabyte.kobweb.compose.css.AnimationIterationCount
 import com.varabyte.kobweb.compose.css.TextDecorationLine
 import com.varabyte.kobweb.compose.foundation.layout.Arrangement
 import com.varabyte.kobweb.compose.ui.Alignment
@@ -13,6 +15,8 @@ import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
 import com.varabyte.kobweb.navigation.Route
 import com.varabyte.kobweb.silk.components.text.SpanText
+import com.varabyte.kobweb.silk.style.animation.Keyframes
+import com.varabyte.kobweb.silk.style.animation.toAnimation
 import kotlinx.browser.window
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.await
@@ -34,6 +38,27 @@ private object ExplorerCache {
     var packages: List<Json>? = null
 }
 
+private fun primaryActionButton() = Modifier
+    .padding(topBottom = 10.px, leftRight = 18.px)
+    .borderRadius(6.px)
+    .border(1.px, LineStyle.Solid, Color.white)
+    .backgroundColor(Color.white)
+    .color(Color.black)
+    .fontWeight(FontWeight.Bolder)
+
+private fun secondaryActionButton() = Modifier
+    .padding(topBottom = 8.px, leftRight = 14.px)
+    .borderRadius(6.px)
+    .border(1.px, LineStyle.Solid, Color.white)
+    .backgroundColor(Color.black)
+    .color(Color.white)
+    .fontWeight(FontWeight.Bolder)
+
+val SearchSpinAnimation = Keyframes {
+    from { Modifier.rotate(0.deg) }
+    to { Modifier.rotate(360.deg) }
+}
+
 @NoLiveLiterals
 @Page("/")
 @Composable
@@ -42,6 +67,7 @@ fun IndexPage() {
     var loadedPackages by remember { mutableStateOf<List<Json>>(emptyList()) }
     var loggedInUser by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var isSearching by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val ctx = rememberPageContext()
@@ -107,8 +133,17 @@ fun IndexPage() {
             .color(Color.white)
             .toAttrs()
     ) {
-        Div(Modifier.margin(bottom = 10.px).display(DisplayStyle.Flex).justifyContent(JustifyContent.SpaceBetween).toAttrs()) {
-            Img(src = "/svglogo.svg", attrs = Modifier.size(width = 652.px, height = 142.px).toAttrs())
+        Div(
+            Modifier
+                .margin(bottom = 24.px)
+                .display(DisplayStyle.Flex)
+                .justifyContent(JustifyContent.SpaceBetween)
+                .alignItems(AlignItems.Center)
+                .flexWrap(FlexWrap.Wrap)
+                .gap(16.px)
+                .toAttrs()
+        ) {
+            Img(src = "/svglogo.svg", attrs = Modifier.size(width = 310.px, height = 68.px).toAttrs())
             val loggedInUsername = window.localStorage.getItem("username")
             for (i in 0 until window.localStorage.length) {
                 println(window.localStorage.key(i))
@@ -126,7 +161,7 @@ fun IndexPage() {
                     .toAttrs()
             ) {
                 if (loggedInUser != null) {
-                    Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
+                    Button(attrs = secondaryActionButton().toAttrs {
                         onClick {
                             println("DEBUG: Navigating to dashboard for $loggedInUser")
                             window.location.href = "/dashboard?username=$loggedInUser"
@@ -135,7 +170,7 @@ fun IndexPage() {
                         Text("Logged in as $loggedInUser")
                     }
                 } else {
-                    Button(attrs = Modifier.backgroundColor(Color.lightgray).toAttrs {
+                    Button(attrs = secondaryActionButton().toAttrs {
                         onClick {
                             println("DEBUG: Navigating to login page")
                             window.location.href = "/loginpage"
@@ -148,14 +183,24 @@ fun IndexPage() {
         }
 
 
-        Div(Modifier.margin(bottom = 20.px).toAttrs()) {
+        Div(
+            Modifier
+                .margin(bottom = 28.px)
+                .display(DisplayStyle.Flex)
+                .alignItems(AlignItems.Center)
+                .flexWrap(FlexWrap.Wrap)
+                .gap(10.px)
+                .toAttrs()
+        ) {
                 Input(
                 type = InputType.Text,
                 attrs = Modifier
                     .width(300.px)
                     .padding(10.px)
                     .borderRadius(4.px)
-                    .border(1.px, LineStyle.Solid, Color.lightgray)
+                    .border(1.px, LineStyle.Solid, Color.white)
+                    .backgroundColor(Color.white)
+                    .color(Color.black)
                     .toAttrs {
                         placeholder("Search for package by extension (e.g. *py)")
                         value(text)
@@ -166,12 +211,13 @@ fun IndexPage() {
             )
 
             Button(
-                attrs = Modifier.margin(left = 10.px).padding(topBottom = 10.px, leftRight = 20.px).toAttrs {
+                attrs = primaryActionButton().toAttrs {
                     onClick {
                         scope.launch {
                             println("--- [IndexPage: Search] START ---")
                             println("DEBUG: Search query: '$text'")
                             isLoading = true
+                            isSearching = true
                             try {
                                 val encodedText = js("encodeURIComponent")(text) as String
                                 val searchUrl = "$QUERY_URL$encodedText"
@@ -194,13 +240,33 @@ fun IndexPage() {
                                 console.error("ERROR: Search failed: ${e.message}")
                             } finally {
                                 isLoading = false
+                                isSearching = false
                                 println("--- [IndexPage: Search] END ---")
                             }
                         }
                     }
                 }
             ) {
-                Text("Search")
+                Span(
+                    attrs = Modifier
+                        .display(DisplayStyle.InlineBlock)
+                        .then(
+                            if (isSearching) {
+                                Modifier.animation(
+                                    SearchSpinAnimation.toAnimation(
+                                        duration = 700.ms,
+                                        iterationCount = AnimationIterationCount.Infinite
+                                    )
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .toAttrs()
+                ) {
+                    Text("⌕")
+                }
+                Text(if (isSearching) " Searching" else " Search")
             }
         }
 
@@ -235,7 +301,7 @@ fun IndexPage() {
                                     Text(" (Author)")
                                 }
                                 Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
-                                    Button(attrs = Modifier.toAttrs {
+                                    Button(attrs = secondaryActionButton().toAttrs {
                                         onClick {
                                             println("DEBUG: Navigating to dashboard for author: $rawName")
                                             window.location.href = "/dashboard?username=$rawName"
@@ -294,7 +360,7 @@ fun IndexPage() {
                                     val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
                                     
                                     Button(
-                                        attrs = Modifier.margin(right = 5.px).toAttrs({
+                                        attrs = secondaryActionButton().margin(right = 5.px).toAttrs({
                                             onClick {
                                                 println("PATH: $path")
                                                 val encodedPath = if (path.isNotEmpty()) path.encodeURLParameter() as String else ""
@@ -315,7 +381,7 @@ fun IndexPage() {
                                         A(href = downloadUrl, attrs = Modifier.margin(right = 5.px).toAttrs {
                                             onClick { println("DEBUG: User clicking Download link for: $downloadUrl") }
                                         }) {
-                                            Button {
+                                            Button(attrs = primaryActionButton().toAttrs()) {
                                                 Text("Download")
                                             }
                                         }
@@ -333,7 +399,7 @@ fun IndexPage() {
         }
 
         Button(
-            attrs = Modifier.margin(top = 40.px).toAttrs {
+            attrs = primaryActionButton().margin(top = 40.px).toAttrs {
                 onClick {
                     println("DEBUG: Navigating to Upload page")
                     window.location.href = "/navigateto"
