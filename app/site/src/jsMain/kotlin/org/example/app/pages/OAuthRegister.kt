@@ -9,7 +9,11 @@ import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
 import kotlinx.browser.window
+import org.jetbrains.compose.web.attributes.InputType
+import org.jetbrains.compose.web.attributes.placeholder
 import org.jetbrains.compose.web.css.px
 import org.jetbrains.compose.web.dom.*
 
@@ -17,15 +21,21 @@ import org.jetbrains.compose.web.dom.*
 @Page("oauthregister")
 @Composable
 fun OAuthRegister() {
+    var password by remember { mutableStateOf("") }
+    val client = HttpClient()
     val registrationUrl = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/registrations" +
             "?client_id=amie" +
             "&response_type=code" +
             "&scope=openid" +
             "&redirect_uri=http://192.168.1.114:8081/oauthpage"
+    val getHtml = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/registrations?client_id=amie&response_type=code&scope=openid&redirect_uri=http://192.168.1.114:8081/oauthpage"
 
     LaunchedEffect(Unit) {
         println("Redirecting to Keycloak OIDC registration: $registrationUrl")
-        window.location.href = registrationUrl
+        println("[][][] fetching...")
+        val html = client.get(getHtml)
+        println("[][][] result...")
+        println(html)
     }
 
     Box(
@@ -39,6 +49,37 @@ fun OAuthRegister() {
             H1 { Text("SSO Registration") }
             P { Text("Redirecting to Keycloak registration page...") }
 
+            Div() {
+                Input(
+                    type = InputType.Password,
+                    attrs = Modifier
+                        .width(250.px)
+                        .padding(8.px)
+                        .toAttrs {
+                            placeholder("Password")
+                            value(password)
+                            onInput { event ->
+                                password = event.value
+                            }
+                        }
+                )
+            }
+            Div() {
+                Input(
+                    type = InputType.Password,
+                    attrs = Modifier
+                        .width(250.px)
+                        .padding(8.px)
+                        .toAttrs {
+                            placeholder("Password")
+                            value(password)
+                            onInput { event ->
+                                password = event.value
+                            }
+                        }
+                )
+            }
+
             Button(
                 attrs = Modifier.margin(top = 16.px).toAttrs {
                     onClick { window.location.href = registrationUrl }
@@ -46,6 +87,7 @@ fun OAuthRegister() {
             ) {
                 Text("Click here if not redirected automatically")
             }
+
 
             Button(
                 attrs = Modifier.margin(top = 12.px).toAttrs {

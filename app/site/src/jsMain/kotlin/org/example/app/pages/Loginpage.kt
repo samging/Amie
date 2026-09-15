@@ -161,11 +161,12 @@ fun Loginpage() {
             Button(
                 attrs = Modifier.toAttrs {
                     onClick {
-                        window.location.href = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/registrations" +
-                                "?client_id=amie" +
-                                "&response_type=code" +
-                                "&scope=openid" +
-                                "&redirect_uri=http://192.168.1.114:8081/oauthpage"
+//                        window.location.href = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/registrations" +
+//                                "?client_id=amie" +
+//                                "&response_type=code" +
+//                                "&scope=openid" +
+//                                "&redirect_uri=http://192.168.1.114:8081/oauthpage"
+                        window.location.href = "/oauthregister"
                     }
                 }
             )
