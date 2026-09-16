@@ -2,6 +2,8 @@ package org.example.app.pages
 
 import androidx.compose.runtime.*
 import androidx.compose.runtime.NoLiveLiterals
+import com.varabyte.kobweb.browser.http.tryFetch
+import com.varabyte.kobweb.compose.css.functions.url
 import com.varabyte.kobweb.compose.foundation.layout.Box
 import com.varabyte.kobweb.compose.foundation.layout.Column
 import com.varabyte.kobweb.compose.ui.Alignment
@@ -30,6 +32,7 @@ fun OAuthRegister() {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var statusMessage by remember { mutableStateOf("Initializing...") }
+    var regexUrlReg by remember { mutableStateOf("") }
 
     val scope = rememberCoroutineScope()
     val host = window.location.hostname
@@ -50,8 +53,8 @@ fun OAuthRegister() {
         println("[][][] fetching...")
         try {
             val response = window.fetch(getHtml).await()
+
             if (response.ok) {
-                // val html = response.text().await() // Intentionally not reading here to avoid extra work
                 val body = response.text().await()
                 println("[][][] Successfully fetched registration HTML metadata ${body}")
 
@@ -63,6 +66,7 @@ fun OAuthRegister() {
                 }
                 val meowmeow = extractActionUrlRegex(body)
                 println("meow $meowmeow")
+                if (meowmeow != null)  { regexUrlReg = meowmeow }
                 statusMessage = "Ready for SSO Registration"
             } else {
                 println("[][][] Fetch failed with status: ${response.status}")
@@ -124,54 +128,23 @@ fun OAuthRegister() {
                         scope.launch {
                             try {
                                 println("[][][] Step 1: Submitting JSON payload to backend SSO proxy...")
-                                
-                                val userPayload = js("""
-                                    {
-                                      "enabled": true,
-                                      "firstName": "_",
-                                      "lastName": "_",
-                                      "email": "",
-                                      "username": "",
-                                      "credentials": [
-                                        {
-                                          "type": "password",
-                                          "value": "",
-                                          "temporary": false
-                                        }
-                                      ]
+
+
+                                val jsData = js("new FormData()")
+                                jsData.append("firstName", ".")
+                                jsData.append("lastName", ".")
+                                jsData.append("email", email)
+                                jsData.append("username", username)
+                                jsData.append("password", password)
+                                jsData.append("password-confirm", password)
+
+                                val postRegister = window.fetch( "/api/sso-post-register", jsData).await()
+                                    if (postRegister.status == 200 as Short) {
+                                        println("we went with success, thats magic!")
                                     }
-                                """)
-                                userPayload.email = email
-                                userPayload.username = username
-                                userPayload.credentials[0].value = password
+                                    else println("[][][] Error: ${postRegister.status}")
 
-                                val payloadString = JSON.stringify(userPayload)
-                                
-                                /*
-                                val response = NetworkLogger.client.post("/api/sso-register") {
-                                    contentType(ContentType.Application.Json)
-                                    setBody(payloadString)
-                                }
-                                */
-                                // Use window.fetch for registration submission to avoid circular dependency
-                                val options = js("{}")
-                                options.method = "POST"
-                                options.headers = js("{ 'Content-Type': 'application/json' }")
-                                options.body = payloadString
 
-                                val response = window.fetch("/api/sso-register", options).await()
-
-                                val responseBody = response.text().await()
-                                println("[][][] PROXY Response Body: $responseBody")
-
-                                if (response.ok && !responseBody.contains("Error") && !responseBody.contains("failed")) {
-                                    statusMessage = "Success! Redirecting to login..."
-                                    kotlinx.coroutines.delay(2000)
-                                    window.location.href = "/loginpage"
-                                } else {
-                                    statusMessage = "Registration failed (Check console for details)"
-                                    println("ERROR BODY: $responseBody")
-                                }
                             } catch (e: Exception) {
                                 println("ERROR: ${e.message}")
                                 statusMessage = "Error: ${e.message}"
