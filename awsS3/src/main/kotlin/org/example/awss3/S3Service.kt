@@ -6,10 +6,13 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.multipart.MultipartFile
+import software.amazon.awssdk.core.ResponseInputStream
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
+import software.amazon.awssdk.services.s3.model.GetObjectResponse
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
@@ -385,6 +388,15 @@ class S3Service(
 
         val response = s3Client.listObjects(request)
         response.contents().map { it.key() }
+    }
+
+    suspend fun downloadAmie(keyName: String, bucketName: String): ResponseInputStream<GetObjectResponse> {
+        val getObjectRequest = GetObjectRequest.builder()
+            .bucket(bucketName)
+            .key(keyName)
+            .build()
+
+        return s3Client.getObject(getObjectRequest)
     }
 
 }

@@ -1,10 +1,18 @@
 package org.example.awss3
 
+import org.apache.coyote.Response
+import org.springframework.core.io.InputStreamResource
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
+import software.amazon.awssdk.core.ResponseBytes
+import software.amazon.awssdk.core.ResponseInputStream
+import software.amazon.awssdk.services.s3.S3Client
+import software.amazon.awssdk.services.s3.model.GetObjectRequest
+import software.amazon.awssdk.services.s3.model.GetObjectResponse
 
 @RestController
 @RequestMapping("/api/aws")
@@ -102,5 +110,18 @@ class UploadController(private val s3Service: S3Service) {
                 .body(message)
         }
     }
-    
+
+    @GetMapping("/downloadAmie")
+    suspend fun downloadAmie(): ResponseEntity<InputStreamResource> {
+        val keyName = "test.txt"
+        val bucketName = "setup-demo-sams"
+        val s3Stream = s3Service.downloadAmie(keyName, bucketName)
+        val contentLength = s3Stream.response().contentLength()
+
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"$keyName\"")
+            .contentLength(contentLength)
+            .contentType(MediaType.APPLICATION_OCTET_STREAM)
+            .body(InputStreamResource(s3Stream))
+    }
 }

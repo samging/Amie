@@ -125,6 +125,7 @@ fun OAuthRegister() {
             Button(
                 attrs = Modifier.margin(top = 16.px).toAttrs {
                     onClick {
+                        println("TRIGGERRING!!!")
                         scope.launch {
                             try {
                                 println("[][][] Step 1: Submitting JSON payload to backend SSO proxy...")

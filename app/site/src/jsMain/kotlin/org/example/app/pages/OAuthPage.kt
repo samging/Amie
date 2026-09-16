@@ -358,7 +358,7 @@ suspend fun exchangeCodeForTokens(
             // Fallback to authorization_code grant
             append("grant_type", "authorization_code")
             append("client_id", "amie")
-            append("client_secret", "")
+            append("client_secret", "JDS5XX3xtZzZstoP0TiNRAkSXljLu80y")
             append("code", authorizationCode ?: "")
             append("redirect_uri", "http://192.168.1.114:8081/oauthpage")
         }
