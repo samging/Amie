@@ -43,6 +43,7 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(npm("highlight.js", "11.9.0"))
             implementation("io.ktor:ktor-client-core:2.3.12")
+            implementation("io.ktor:ktor-client-logging:2.3.12")
             implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
             implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
         }
@@ -53,6 +54,9 @@ kotlin {
             implementation(libs.kobweb.api)
             implementation(libs.kobwebx.serialization.kotlinx)
             implementation(libs.kotlinx.serialization.json)
+            implementation("io.ktor:ktor-client-core:2.3.12")
+            implementation("io.ktor:ktor-client-logging:2.3.12")
+            implementation("io.ktor:ktor-client-cio:2.3.12")
         }
     }
 }

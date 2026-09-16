@@ -30,9 +30,10 @@ import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLQueryComponent
 
-private const val DASHBOARD_URL = "http://192.168.1.114:8080/dashboard"
-private const val LIST_GITHUB_URL = "http://192.168.1.114:8080/list-github"
-private const val QUERY_URL = "http://192.168.1.114:8080/query?query="
+private val host = window.location.hostname
+private val DASHBOARD_URL = "http://$host:8080/dashboard"
+private val LIST_GITHUB_URL = "http://$host:8080/list-github"
+private val QUERY_URL = "http://$host:8080/query?query="
 
 private object ExplorerCache {
     var packages: List<Json>? = null

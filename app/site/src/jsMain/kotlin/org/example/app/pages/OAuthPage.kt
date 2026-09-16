@@ -311,6 +311,9 @@ suspend fun validateJwt(token: String): Boolean {
 suspend fun getJwks(): JwksResponse {
     val jwksEndpoint = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/certs"
     println("getJwks calling endpoint: $jwksEndpoint")
+    println("\n=== [CURL LOG] ===")
+    println("curl -X GET '$jwksEndpoint'")
+    println("==================\n")
     try {
         val result = httpClient.get(jwksEndpoint).body<JwksResponse>()
         println("getJwks successfully retrieved ${result.keys.size} public keys.")
@@ -365,6 +368,14 @@ suspend fun exchangeCodeForTokens(
     formParams.forEach { key, values ->
         println(" - $key: ${if (key == "password") "****" else values.joinToString()}")
     }
+
+    // Convert formParams to curl body for logging
+    val curlData = formParams.entries().joinToString("&") { entry ->
+        "${entry.key}=${if (entry.key == "password") "****" else entry.value.joinToString(",")}"
+    }
+    println("\n=== [CURL LOG] ===")
+    println("curl -X POST '$tokenEndpoint' -H 'Content-Type: application/x-www-form-urlencoded' -d '$curlData'")
+    println("==================\n")
 
     val response = httpClient.submitForm(
         url = tokenEndpoint,

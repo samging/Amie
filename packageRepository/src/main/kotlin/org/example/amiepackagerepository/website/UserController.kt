@@ -201,26 +201,26 @@ class UserController(
     fun ssoRegister(@RequestBody keycloakUser: Map<String, Any>): ResponseEntity<String> {
         logger.info("--- [POST /api/sso-register] START ---")
         val username = keycloakUser["username"] as? String ?: "unknown"
-        
+
         try {
             // Note: In a real environment, you'd fetch an admin token first.
             // For now, we attempt to create the user directly or return instructions.
             // For security, this endpoint should be properly secured.
-            
+
             val keycloakUrl = "http://192.168.1.114:8080/admin/realms/master/users"
             val restClient = org.springframework.web.client.RestClient.create()
-            
+
             // This requires an Admin token which is usually handled via service accounts
             // Since I cannot configure your Keycloak server, I'm providing the proxy structure.
             // If you have a token, add .header("Authorization", "Bearer <TOKEN>")
-            
+
             val response = restClient.post()
                 .uri(keycloakUrl)
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(keycloakUser)
                 .retrieve()
                 .toEntity(String::class.java)
-                
+
             if (response.statusCode.is2xxSuccessful) {
                 userService.logActivity(username, "SSO_REGISTER", "User registered via SSO API proxy")
                 return ResponseEntity.ok("User created in Keycloak successfully")
