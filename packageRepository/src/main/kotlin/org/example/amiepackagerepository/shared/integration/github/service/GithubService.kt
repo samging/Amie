@@ -77,9 +77,6 @@ class GithubService {
             logger.warn("GITHUB_TOKEN is NULL in environment")
         }
 
-
-
-
         val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
         var response: ResponseEntity<List<GithubContentResponseDto>>? = null
 
@@ -207,7 +204,9 @@ class GithubService {
                         "download_url" to it.url.replace("api.github.com/repos", "raw.githubusercontent.com").replace("/$urlSegment/", "/main/"),
                         "size" to 0
                     )
-                }.also { logger.info("--- [SimpleService: queryFilesGithub] END (Success) ---") }
+                }.also {
+                    logger.info("--- [SimpleService: queryFilesGithub] END (Success) ---")
+                }
             } catch (e: Exception) {
                 logger.error("GITHUB: Extension search failed: {}", e.message)
                 emptyList<Any>()
