@@ -425,6 +425,7 @@ class GithubService {
 
         val path = if (username.isNotBlank()) "uploads/$safeUsername/$safeLang/$safeFileName" else "uploads/$safeLang/$safeFileName"
         val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
+
         val contentBase64 = Base64.getEncoder().encodeToString(file.bytes)
 
         var existingSha: String? = null
