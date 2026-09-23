@@ -10,5 +10,4 @@ enum class DeviceActions {
     companion object {
         fun _fex1gga() { println("def some magic can happen here")}
     }
-
 }
