@@ -521,7 +521,7 @@ class GithubControllerTest {
         whenever(mockClaims.subject).thenReturn(username)
         whenever(userService.validateToken(token)).thenReturn(mockClaims)
 
-        whenever(simpleService.sendEdit(eq(username), eq(fileName), eq(mockFile)))
+        whenever(simpleService.sendEdit(eq(username), fileName, mockFile))
             .thenThrow(RuntimeException(errorMessage))
 
         // Act & Assert
