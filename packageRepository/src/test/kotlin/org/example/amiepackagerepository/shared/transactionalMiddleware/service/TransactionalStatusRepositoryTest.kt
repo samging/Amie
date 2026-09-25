@@ -1,5 +1,19 @@
 package org.example.amiepackagerepository.shared.transactionalMiddleware.service
 
+import org.example.amiepackagerepository.shared.transactionalMiddleware.entities.DeviceStatus
+import org.example.amiepackagerepository.shared.transactionalMiddleware.enumerables.DeviceActions
+import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
+import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.eq
+import org.mockito.Mockito.doNothing
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.`when`
+import org.springframework.http.HttpStatus
+import org.testcontainers.shaded.com.google.common.base.Verify.verify
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
 @ExtendWith(MockitoExtension::class)
 class TransactionalStatusRepositoryTest {
     @Mock
@@ -33,11 +47,9 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `repositoryDeviceController - user not found - returns 400 Bad Request`() {
-        // Arrange
         val username = "unknown_user"
-        whenever(userRepository.findByUsername(username)).thenReturn(null)
+        `when`(userRepository.findByUsername(username)).thenReturn(null)
 
-        // Act
         val future = transactionalStatusRepository.repositoryDeviceController(
             action = DeviceActions.SET,
             username = username,
@@ -45,7 +57,6 @@ class TransactionalStatusRepositoryTest {
         )
         val response = future.get()
 
-        // Assert
         assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
         assertEquals("User not found or is Unidentifiable: '$username'", response.body)
         verify(deviceStatusRepository, never()).deleteAll(any())
@@ -53,7 +64,6 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `repositoryDeviceController - SET action happy path - deletes existing, saves new entities, and syncs to github`() {
-        // Arrange
         val username = "john"
         val user = RestUserEntity(id = 1L, username = username)
         val deviceMap = mapOf(
@@ -61,12 +71,11 @@ class TransactionalStatusRepositoryTest {
         )
         val existingStatuses = listOf(DeviceStatus(deviceKey = "old", user = user))
 
-        whenever(userRepository.findByUsername(username)).thenReturn(user)
-        whenever(deviceStatusRepository.findByUser(user)).thenReturn(existingStatuses)
-        whenever(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenAnswer { it.arguments[0] }
-        doNothing().whenever(simpleService).uploadFileData(eq(username), eq("$username-device.json"), any())
+        `when`(userRepository.findByUsername(username)).thenReturn(user)
+        `when`(deviceStatusRepository.findByUser(user)).thenReturn(existingStatuses)
+        `when`(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenAnswer { it.arguments[0] }
+        doNothing().`when`(simpleService).uploadFileData(eq(username), eq("$username-device.json"), any())
 
-        // Act
         val future = transactionalStatusRepository.repositoryDeviceController(
             action = DeviceActions.SET,
             username = username,
@@ -74,7 +83,6 @@ class TransactionalStatusRepositoryTest {
         )
         val response = future.get()
 
-        // Assert
         assertEquals(HttpStatus.OK, response.statusCode)
         assertEquals("Device statuses saved and synced for $username", response.body)
 
@@ -99,13 +107,12 @@ class TransactionalStatusRepositoryTest {
             "dev1" to DeviceDto(name = "Device 1", port = 8080, deviceEndpoint = "/api/v1")
         )
 
-        whenever(userRepository.findByUsername(username)).thenReturn(user)
-        whenever(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
-        whenever(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenAnswer { it.arguments[0] }
-        whenever(simpleService.uploadFileData(eq(username), eq("$username-device.json"), any()))
+        `when`(userRepository.findByUsername(username)).thenReturn(user)
+        `when`(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
+        `when`(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenAnswer { it.arguments[0] }
+        `when`(simpleService.uploadFileData(eq(username), eq("$username-device.json"), any()))
             .thenThrow(RuntimeException("Network timeout"))
 
-        // Act
         val future = transactionalStatusRepository.repositoryDeviceController(
             action = DeviceActions.SET,
             username = username,
@@ -113,7 +120,6 @@ class TransactionalStatusRepositoryTest {
         )
         val response = future.get()
 
-        // Assert
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.statusCode)
         assertEquals("Local save OK, but GitHub sync failed: Network timeout", response.body)
 
@@ -122,22 +128,20 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `repositoryDeviceController - GET action happy path - returns github file content`() {
-        // Arrange
         val username = "john"
         val user = RestUserEntity(id = 1L, username = username)
         val expectedUrl = "$githubApiBase/$owner/$name/$urlSegment/uploads/$username/$username-device.json"
         val expectedJson = """{"dev1":{"name":"Device 1"}}"""
 
-        whenever(userRepository.findByUsername(username)).thenReturn(user)
-        whenever(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
+        `when`(userRepository.findByUsername(username)).thenReturn(user)
+        `when`(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
 
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toEntity(String::class.java)).thenReturn(ResponseEntity.ok(expectedJson))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toEntity(String::class.java)).thenReturn(ResponseEntity.ok(expectedJson))
 
-        // Act
         val future = transactionalStatusRepository.repositoryDeviceController(
             action = DeviceActions.GET,
             username = username,
@@ -145,7 +149,6 @@ class TransactionalStatusRepositoryTest {
         )
         val response = future.get()
 
-        // Assert
         assertEquals(HttpStatus.OK, response.statusCode)
         assertEquals(expectedJson, response.body)
 
@@ -154,21 +157,19 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `repositoryDeviceController - GET action http error - returns mapped status code and error body`() {
-        // Arrange
         val username = "john"
         val user = RestUserEntity(id = 1L, username = username)
 
-        whenever(userRepository.findByUsername(username)).thenReturn(user)
-        whenever(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
+        `when`(userRepository.findByUsername(username)).thenReturn(user)
+        `when`(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
 
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(any<String>())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(any<String>())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toEntity(String::class.java))
             .thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", null, null, null))
 
-        // Act
         val future = transactionalStatusRepository.repositoryDeviceController(
             action = DeviceActions.GET,
             username = username,
@@ -176,28 +177,25 @@ class TransactionalStatusRepositoryTest {
         )
         val response = future.get()
 
-        // Assert
         assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
         assertEquals("Repository Error: 404 Not Found", response.body)
     }
 
     @Test
     fun `repositoryDeviceController - GET action generic exception - returns 500 Internal Server Error`() {
-        // Arrange
         val username = "john"
         val user = RestUserEntity(id = 1L, username = username)
 
-        whenever(userRepository.findByUsername(username)).thenReturn(user)
-        whenever(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
+        `when`(userRepository.findByUsername(username)).thenReturn(user)
+        `when`(deviceStatusRepository.findByUser(user)).thenReturn(emptyList())
 
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(any<String>())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(any<String>())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toEntity(String::class.java))
             .thenThrow(RuntimeException("Unknown connection failure"))
 
-        // Act
         val future = transactionalStatusRepository.repositoryDeviceController(
             action = DeviceActions.GET,
             username = username,
@@ -205,14 +203,12 @@ class TransactionalStatusRepositoryTest {
         )
         val response = future.get()
 
-        // Assert
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.statusCode)
         assertEquals("Error: Unknown connection failure", response.body)
     }
 
     @Test
     fun `saveDeviceStatuses - happy path - clears existing statuses and persists mapped device entities`() {
-        // Arrange
         val username = "john"
         val user = RestUserEntity(id = 10L, username = username)
 
@@ -225,18 +221,14 @@ class TransactionalStatusRepositoryTest {
             DeviceStatus(id = 1L, deviceKey = "old-dev", name = "Old Device", port = 7070, deviceEndpoint = "/old", user = user)
         )
 
-        whenever(userRepository.findByUsername(username)).thenReturn(user)
-        whenever(deviceStatusRepository.findByUser(user)).thenReturn(existingStatuses)
-        whenever(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenAnswer { it.arguments[0] }
+        `when`(userRepository.findByUsername(username)).thenReturn(user)
+        `when`(deviceStatusRepository.findByUser(user)).thenReturn(existingStatuses)
+        `when`(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenAnswer { it.arguments[0] }
 
-        // Act
         service.saveDeviceStatuses(username, deviceMap)
 
-        // Assert
-        // 1. Verify existing records were cleared
         verify(deviceStatusRepository).deleteAll(existingStatuses)
 
-        // 2. Capture and verify saved DeviceStatus entities
         val captor = argumentCaptor<List<DeviceStatus>>()
         verify(deviceStatusRepository).saveAll(captor.capture())
 
@@ -258,21 +250,18 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `saveDeviceStatuses - empty device map - clears existing statuses and saves empty list`() {
-        // Arrange
         val username = "john"
         val user = RestUserEntity(id = 10L, username = username)
         val existingStatuses = listOf(
             DeviceStatus(id = 1L, deviceKey = "old-dev", name = "Old Device", user = user)
         )
 
-        whenever(userRepository.findByUsername(username)).thenReturn(user)
-        whenever(deviceStatusRepository.findByUser(user)).thenReturn(existingStatuses)
-        whenever(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenReturn(emptyList())
+        `when`(userRepository.findByUsername(username)).thenReturn(user)
+        `when`(deviceStatusRepository.findByUser(user)).thenReturn(existingStatuses)
+        `when`(deviceStatusRepository.saveAll(any<List<DeviceStatus>>())).thenReturn(emptyList())
 
-        // Act
         service.saveDeviceStatuses(username, emptyMap())
 
-        // Assert
         verify(deviceStatusRepository).deleteAll(existingStatuses)
 
         val captor = argumentCaptor<List<DeviceStatus>>()
@@ -282,14 +271,11 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `saveDeviceStatuses - user not found - early returns without modifying or saving device statuses`() {
-        // Arrange
         val username = "non_existent_user"
-        whenever(userRepository.findByUsername(username)).thenReturn(null)
+        `when`(userRepository.findByUsername(username)).thenReturn(null)
 
-        // Act
         service.saveDeviceStatuses(username, mapOf("dev-01" to DeviceDto(name = "Sensor")))
 
-        // Assert
         verify(deviceStatusRepository, never()).findByUser(any())
         verify(deviceStatusRepository, never()).deleteAll(any())
         verify(deviceStatusRepository, never()).saveAll(any<List<DeviceStatus>>())
@@ -297,7 +283,6 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `getDeviceStatuses - happy path - delegates to repository and returns matching entities`() {
-        // Arrange
         val username = "john"
         val user = RestUserEntity(id = 10L, username = username)
         val expectedStatuses = listOf(
@@ -305,12 +290,10 @@ class TransactionalStatusRepositoryTest {
             DeviceStatus(id = 2L, deviceKey = "dev-02", name = "Actuator B", user = user)
         )
 
-        whenever(deviceStatusRepository.findByUserUsername(username)).thenReturn(expectedStatuses)
+        `when`(deviceStatusRepository.findByUserUsername(username)).thenReturn(expectedStatuses)
 
-        // Act
         val result = service.getDeviceStatuses(username)
 
-        // Assert
         assertEquals(2, result.size)
         assertEquals("dev-01", result[0].deviceKey)
         assertEquals("dev-02", result[1].deviceKey)
@@ -319,14 +302,11 @@ class TransactionalStatusRepositoryTest {
 
     @Test
     fun `getDeviceStatuses - no records found - returns empty list`() {
-        // Arrange
         val username = "alice"
-        whenever(deviceStatusRepository.findByUserUsername(username)).thenReturn(emptyList())
+        `when`(deviceStatusRepository.findByUserUsername(username)).thenReturn(emptyList())
 
-        // Act
         val result = service.getDeviceStatuses(username)
 
-        // Assert
         assertTrue(result.isEmpty())
         verify(deviceStatusRepository).findByUserUsername(username)
     }

@@ -1,6 +1,7 @@
 package org.example.amiepackagerepository.shared.integration.gdrive.configuration
 
 import com.google.api.services.drive.Drive
+import org.example.amiepackagerepository.shared.transactionalMiddleware.integration.gdrive.configuration.GoogleDriveClientConfig
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -21,11 +22,9 @@ class GoogleDriveClientConfigTest {
 
     @Test
     fun `connectToDisk - missing file - throws IllegalStateException when file does not exist`() {
-        // Arrange
         val nonExistentPath = "/path/to/non/existent/file.json"
         ReflectionTestUtils.setField(config, "packageLock", nonExistentPath)
 
-        // Act & Assert
         val exception = assertThrows<IllegalStateException> {
             config.connectToDisk()
         }
@@ -37,13 +36,11 @@ class GoogleDriveClientConfigTest {
     fun `connectToDisk - wrong key type - throws helpful IllegalStateException when OAuth client file passed`(
         @TempDir tempDir: File
     ) {
-        // Arrange: Create a temporary file mimicking an OAuth Client ID JSON ("type": "installed")
         val oauthJsonFile = File(tempDir, "oauth-client.json").apply {
             writeText("""{"installed": {"client_id": "123", "type": "installed"}}""")
         }
         ReflectionTestUtils.setField(config, "packageLock", oauthJsonFile.absolutePath)
 
-        // Act & Assert
         val exception = assertThrows<IllegalStateException> {
             config.connectToDisk()
         }
@@ -53,15 +50,15 @@ class GoogleDriveClientConfigTest {
 
     @Test
     fun `connectToDisk - valid service account key - initializes Drive bean successfully`(@TempDir tempDir: File) {
-        // Arrange: Create a valid minimal Service Account key JSON file
         val serviceAccountJson = File(tempDir, "service-account.json").apply {
+            //[NOTE to Reader] it's not the real private key, check .env files
             writeText(
                 """
                 {
                   "type": "service_account",
                   "project_id": "test-project",
                   "private_key_id": "key-id",
-                  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n",
+                  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFMMSCBKgwggSkAgEAAoIBAQCCoI\n-----END PRIVATE KEY-----\n",
                   "client_email": "test@test-project.iam.gserviceaccount.com",
                   "client_id": "123456789",
                   "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -71,11 +68,8 @@ class GoogleDriveClientConfigTest {
             )
         }
         ReflectionTestUtils.setField(config, "packageLock", serviceAccountJson.absolutePath)
-
-        // Act
         val driveBean: Drive = config.connectToDisk()
 
-        // Assert
         assertNotNull(driveBean)
         assertEquals("AmiePackageRepository", driveBean.applicationName)
     }

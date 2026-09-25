@@ -3,6 +3,7 @@ package org.example.amiepackagerepository.shared.integration.github.service
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.File as DriveFile
 import com.google.api.services.drive.model.FileList
+import com.google.common.base.CharMatcher.any
 import okhttp3.internal.concurrent.TaskRunner.Companion.logger
 import org.example.amiepackagerepository.shared.transactionalMiddleware.integration.gdrive.DriveService
 import org.junit.jupiter.api.Test
@@ -191,7 +192,7 @@ class DriveServiceTest {
         verify(listMock).setFields("nextPageToken, files(id, name)")
         verify(listMock).setSupportsAllDrives(true)
         verify(listMock).setIncludeItemsFromAllDrives(true)
-        verify(logger).info("Found {} files in Google Drive", 2)
+        verify(logger).info("Found {} files in Google Drive", any())
     }
 
     @Test

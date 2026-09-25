@@ -581,7 +581,7 @@ class GithubService {
             logger.info("--- [SimpleService: uploadFile] END ---")
         }
     }
-    private fun fetchFileSha(url: String, githubToken: String?): String? {
+    internal fun fetchFileSha(url: String, githubToken: String?): String? {
         if (githubToken.isNullOrBlank()) return null
         return try {
             logger.info("Fetching SHA for URL: {}", url)
