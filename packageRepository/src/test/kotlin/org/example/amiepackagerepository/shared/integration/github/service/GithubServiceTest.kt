@@ -11,11 +11,9 @@ import org.mockito.Mockito.mockStatic
 import org.mockito.Mockito.verify
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.junit.jupiter.MockitoExtension
-import org.springframework.boot.autoconfigure.info.ProjectInfoProperties
 import org.springframework.core.ParameterizedTypeReference
 import org.springframework.http.ResponseEntity
 import org.springframework.web.client.RestClient
-import java.io.FileNotFoundException
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import java.util.Base64
@@ -23,7 +21,6 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.argThat
 import org.mockito.Mockito.times
 import org.springframework.http.HttpHeaders
-import org.mockito.Mockito.`when` as whenever
 import org.springframework.test.web.client.MockRestServiceServer
 import org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo
 import org.springframework.test.web.client.match.MockRestRequestMatchers.method
@@ -31,29 +28,39 @@ import org.springframework.test.web.client.response.MockRestResponseCreators.wit
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
 import org.springframework.web.client.HttpClientErrorException
-import java.nio.charset.StandardCharsets
+import org.mockito.ArgumentMatchers.eq
+import org.mockito.Mockito.mock
+import kotlin.test.Test
+import org.mockito.Mockito.never
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.`when`
+import org.springframework.http.MediaType
+import org.springframework.mock.web.MockMultipartFile
+
 
 @ExtendWith(MockitoExtension::class)
-class GithubServiceTest {
+class githubServiceTest {
 
     @Mock
     private lateinit var restClient: RestClient
 
     @Mock
     //POST/PUT client specifications in headers
-    private lateinit var uriSpecs: RestClient.RequestHeadersUriSpec<*>
+    private lateinit var requestHeadersUriSpec: RestClient.RequestHeadersUriSpec<*>
 
     @Mock
     //GET/DELETE client specifications in headers
-    private lateinit var headerSpecs: RestClient.RequestHeadersSpec<*>
+    private lateinit var requestHeadersSpec: RestClient.RequestHeadersSpec<*>
 
     @Mock
     private lateinit var responseSpec: RestClient.ResponseSpec
 
+    @Mock
+    private lateinit var githubService: GithubService
+
     @BeforeEach
     fun setUp() {
-        // Chain the basic flow: get() -> uri(...) -> header(...) -> retrieve()
-        mockServer = MockRestServiceServer.bindTo(restClientBuilder).build()
+        val mockServer = MockRestServiceServer.bindTo(restClient).build()
         `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
         `when`(requestHeadersUriSpec.uri(anyString())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
         `when`(requestHeadersSpec.header(anyString(), anyString())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
@@ -64,14 +71,13 @@ class GithubServiceTest {
 
     @Test
     fun `when github token is present`() {
-        setupRestMocks()
+        setUp()
 
         mockStatic(System::class.java).use { mockedSystem ->
             mockedSystem.`when`<String> { System.getenv("GITHUB_TOKEN") }
                 .thenReturn("ghp_myValidToken123")
 
-            val serviceGithub = GithubService()
-            serviceGithub.listFilesGithub()
+            githubService.listFilesGithub()
 
             verify(headerSpecs).header("Authorization", "Bearer ghp_myValidToken123")
         }
@@ -79,18 +85,18 @@ class GithubServiceTest {
 
     @Test
     fun `when github token is absent`() {
-        setupRestMocks()
+        setUp()
 
         mockStatic(System::class.java).use { mockedSystem ->
             mockedSystem.`when`<String> { System.getenv("GITHUB_TOKEN") }
                 .thenReturn(null)
 
-            val serviceGithub = GithubService()
-            serviceGithub.listFilesGithub()
+            githubService.listFilesGithub()
 
             verify(headerSpecs).header("Authorization", "Bearer ")
         }
     }
+
     @Test
     fun `HTTP GET call when body is not null`() {
         val mockDto = GithubContentResponseDto(name = "file.kt", downloadUrl = "http://...", sha = "123", type = "file")
@@ -98,41 +104,58 @@ class GithubServiceTest {
         `when`(responseSpec.toEntity(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>()))
             .thenReturn(responseEntity)
 
-        val result = GithubService.listFilesGithub()
+        val result = githubService.listFilesGithub()
         assertEquals(1, result.size)
         assertEquals(mockDto.name, result[0].name)
     }
 
     @Test
     fun `HTTP GET call when body is null parameter`() {
-        //empty parameter instead of null, to prevent null exception
         val responseEntityWithNullBody = ResponseEntity<List<GithubContentResponseDto<>>>
         `when`(responseSpec.toEntity(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>())))
 
-        val result = GithubService.listFilesGithub()
+        val result = githubService.listFilesGithub()
         assertEquals(result.isEmpty())
     }
 
     @Test
     fun `HTTP GET returned on timeout or generic-network error`() {
-        //network failure should return empty body
         `when`(responseSpec.toEntity(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>()))
             .thenThrow("Runtime excpetion")
 
-        val result = GithubService.listFilesGithub()
+        val result = githubService.listFilesGithub()
         assertTrue(result.isEmpty())
     }
 
 
     @Test
     fun `listUserPackages - includes non-md files and excludes md files`() {
-        val rootItem1 = GithubContentResponseDto(name = "package.zip", path = "uploads/john/package.zip", type = "file")
-        val rootItem2 = GithubContentResponseDto(name = "README.md", path = "uploads/john/README.md", type = "file")
+        val rootItem1 = GithubContentResponseDto(
+            name = "package.zip",
+            path = "uploads/john/package.zip",
+            sha = "9e107d9d372bb6826bd81d3542a419d6e2179ef3",
+            size = 1048576,
+            url = "https://api.github.com/repos/owner/repository/contents/uploads/john/package.zip?ref=main",
+            htmlUrl = "https://github.com/owner/repository/blob/main/uploads/john/package.zip",
+            downloadUrl = "https://raw.githubusercontent.com/owner/repository/main/uploads/john/package.zip",
+            type = "file"
+        )
+
+        val rootItem2 = GithubContentResponseDto(
+            name = "README.md",
+            path = "uploads/john/README.md",
+            sha = "3d2180cc10a192ee1b8227d65992928c039f9958",
+            size = 33,
+            url = "https://api.github.com/repos/owner/repository/contents/uploads/john/README.md?ref=main",
+            htmlUrl = "https://github.com/owner/repository/blob/main/uploads/john/README.md",
+            downloadUrl = "https://raw.githubusercontent.com/owner/repository/main/uploads/john/README.md",
+            type = "file"
+        )
 
         `when`(responseSpec.body(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>()))))
             .thenReturn(listOf(rootItem1, rootItem2))
 
-        val result = GithubService.listUserPackages("john")
+        val result = githubService.listUserPackages("john")
         assertEquals(1,result.size)
         assertEquals("package.zip", result[0].name)
     }
@@ -142,11 +165,11 @@ class GithubServiceTest {
         val rootDirectory = GithubContentResponseDto(name = "subfolder", path = "uploads/john/subfolder", type = "dir")
         val nestedFile = GithubContentResponseDto(name = "app.tar.gz", path = "uploads/john/subfolder/app.tar.gz", type = "file")
 
-        whenever(responseSpec.body(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>()))
+        `when`(responseSpec.body(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>()))
             .thenReturn(listOf(rootDirectory)) // Call 1 (uploads/john)
             .thenReturn(listOf(nestedFile))    // Call 2 (uploads/john/subfolder)
 
-        val result = simpleService.listUserPackages("john")
+        val result = githubService.listUserPackages("john")
 
         assertEquals(1, result.size)
         assertEquals("app.tar.gz", result[0].name)
@@ -159,25 +182,23 @@ class GithubServiceTest {
         `when`(responseSpec.body(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>()))
             .thenReturn(emptyList())
 
-        simpleService.listUserPackages("john doe")
+        githubService.listUserPackages("john doe")
 
         verify(requestHeadersUriSpec).uri(argThat { contains("uploads/john%20doe") })
     }
 
     @Test
     fun `listUserPackages - handles exception during directory walk gracefully`() {
-        //TypeErasure, that's why to use ParamaterizeTR
         `when`(responseSpec.body(any<ParameterizedTypeReference<List<GithubContentResponseDto>>>()))
             .thenThrow(RuntimeException("Network error"))
 
-        val result = simpleService.listUserPackages("john")
+        val result = githubService.listUserPackages("john")
 
         assertTrue(result.isEmpty())
     }
 
     @Test
     fun `queryFilesGithub - decodes base64 searchables and filters by extension correctly`() {
-        //becauase we are asking for request body
         val fakSearchable = """
             [
                 {"lang": "kt", "url": "https://api.github.com/repos/owner/repo/contents/uploads/Main.kt"},
@@ -190,7 +211,7 @@ class GithubServiceTest {
 
         `when`(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(mockResponse)
 
-        val result = GithubService.queryFilesGithub("*kt") as List<Map<String, Any>>
+        val result = githubService.queryFilesGithub("*kt") as List<Map<String, Any>>
         assertEquals(1, result.size)
 
         val firstMatch = result[0]
@@ -205,14 +226,14 @@ class GithubServiceTest {
     fun `queryFilesGithub - handles corrupted base64 or JSON`() {
         val mockResponse = GithubContentResponseDto(content = "corruptedBase64")
         `when`(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(mockResponse)))
-        val result = GithubService.queryFilesGithub("*kt")
+        val result = githubService.queryFilesGithub("*kt")
         assertTrue(result.isEmpty())
     }
 
     @Test
     fun `createUserDahsboard - creadentials are empty`() {
         val emptyCredentials = ""
-        val result = GithubService.createUserDashboard(emptyCredentials)
+        val result = githubService.createUserDashboard(emptyCredentials)
         assertTrue(result.isEmpty())
     }
 
@@ -254,7 +275,7 @@ class GithubServiceTest {
             null
         )
 
-        whenever(responseSpec.body(GithubContentResponseDto::class.java))
+        `when`(responseSpec.body(GithubContentResponseDto::class.java))
             .thenThrow(clientException)
 
         val result = service.fetchEndpoints()
@@ -275,7 +296,7 @@ class GithubServiceTest {
         val mockResponse = GithubContentResponseDto(content = Base64.getEncoder().encodeToString(rawJson.toByteArray()))
         `when`(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(mockResponse)
 
-        val result = GithubService.fetchEndpoints()
+        val result = githubService.fetchEndpoints()
 
         assertEquals(2, result.size)
         assertEquals("Description A", result["Device A"])
@@ -296,7 +317,7 @@ class GithubServiceTest {
         `when`(responseSpec.body(GithubContentResponseDto::class.java))
             .thenReturn(mockResponse)
 
-        val result = GithubService.fetchEndpoints()
+        val result = githubService.fetchEndpoints()
 
         assertEquals(2, result.size)
         assertEquals("Description C", result["Device C"])
@@ -312,7 +333,7 @@ class GithubServiceTest {
         val mockResponse = GithubContentResponseDto(content = Base64.getEncoder().encodeToString(notJson.toByteArray()))
 
         `when`(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(mockResponse)
-        val result = GithubService.fetchEndpoints()
+        val result = githubService.fetchEndpoints()
         assertTrue(result.isEmpty())
     }
 
@@ -326,7 +347,7 @@ class GithubServiceTest {
         `when`(file.bytes).thenReturn(ByteArray(0))
         val urlCaptor = ArgumentCaptor.forClass(String::class.java)
 
-        GithubService.uploadFile(username, progLanguage, file)
+        githubService.uploadFile(username, progLanguage, file)
         verify(restClient).put(urlCaptor.capture(), any())
 
         val expectedPath = if (username.isNotBlank()) "uploads/$safeUsername/$safeLang/$safeFileName" else "uploads/$safeLang/$safeFileName"
@@ -345,7 +366,7 @@ class GithubServiceTest {
         `when`(file.bytes).thenReturn(ByteArray(0))
         val urlCaptor = ArgumentCaptor.forClass(String::class.java)
 
-        GithubService.uploadFile(username, progLanguage, file)
+        githubService.uploadFile(username, progLanguage, file)
         verify(restClient).put(urlCaptor.capture(), any())
 
         val expectedPath = "uploads/$safeLang/$safeFileName"
@@ -361,7 +382,7 @@ class GithubServiceTest {
         val progLanguage = "kt"
         val file = null
 
-        val result = GithubService.uploadFile(username, progLanguage, file)
+        val result = githubService.uploadFile(username, progLanguage, file)
         assertTrue(result.isEmpty())
     }
 
@@ -375,11 +396,11 @@ class GithubServiceTest {
 
         // 1. Stub initial GET check to return an existing SHA
         val mockShaDto = GithubContentResponseDto(sha = expectedSha)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenReturn(ResponseEntity.ok(mockShaDto))
 
         // 2. Stub PUT responses (for searchables patch + final upload)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("success"))
 
         // Act
@@ -406,11 +427,11 @@ class GithubServiceTest {
         val exceptionMessage = "404 Not Found"
 
         // 1. Stub initial GET check to throw an exception (e.g. 404 file doesn't exist)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException(exceptionMessage))
 
         // 2. Stub PUT responses (for searchables patch + final upload)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("success"))
 
         // Act
@@ -439,12 +460,12 @@ class GithubServiceTest {
         val mockFile = MockMultipartFile("file", "script.kt", "text/plain", "println()".toByteArray())
 
         // 1. Initial file check returns no existing SHA (404/new file)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. PUT response stubs (searchables patch response + final upload response)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))
             .thenReturn(ResponseEntity.ok("uploaded"))
 
@@ -495,12 +516,12 @@ class GithubServiceTest {
             )
         )
 
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenReturn(fileCheckResponse)
             .thenReturn(searchablesCheckResponse)
 
         // 3. Stub PUT responses (for searchables patch + final upload)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))
             .thenReturn(ResponseEntity.ok("uploaded"))
 
@@ -554,12 +575,12 @@ class GithubServiceTest {
             )
         )
 
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenReturn(fileCheckResponse)
             .thenReturn(searchablesCheckResponse)
 
         // 3. Stub PUT responses (patchSearchTree + final file upload)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))
             .thenReturn(ResponseEntity.ok("uploaded"))
 
@@ -604,12 +625,12 @@ class GithubServiceTest {
             )
         )
 
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenReturn(fileCheckResponse)
             .thenReturn(searchablesCheckResponse)
 
         // 3. Stub PUT responses (patchSearchTree + final file upload)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))
             .thenReturn(ResponseEntity.ok("uploaded"))
 
@@ -666,12 +687,12 @@ class GithubServiceTest {
             )
         )
 
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenReturn(fileCheckResponse)
             .thenReturn(searchablesCheckResponse)
 
         // 3. Stub PUT responses (patchSearchTree + final file upload)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))
             .thenReturn(ResponseEntity.ok("uploaded"))
 
@@ -702,13 +723,13 @@ class GithubServiceTest {
         val mockFile = MockMultipartFile("file", "script.kt", "text/plain", "println()".toByteArray())
 
         // 1. Stub GET checks (404 for main file, 404 for searchables)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. Stub PUT responses:
         // First PUT (patchSearchTree) returns 409 Conflict
         // Second PUT (final file upload) returns 200 OK
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.status(HttpStatus.CONFLICT).body("Conflict")) // patchSearchTree
             .thenReturn(ResponseEntity.ok("uploaded"))                                 // final upload
 
@@ -734,18 +755,18 @@ class GithubServiceTest {
         val mockFile = MockMultipartFile("file", "script.kt", "text/plain", "println()".toByteArray())
 
         // 1. Stub initial GET checks (404 for main file check, 404 for searchables check)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. Stub PUT responses:
         // First PUT (patchSearchTree) returns 404 Not Found
         // Second PUT (creating searchables.json via toBodilessEntity)
         // Third PUT (final main file upload) returns 200 OK
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.status(HttpStatus.NOT_FOUND).body("Not Found")) // patchSearchTree
             .thenReturn(ResponseEntity.ok("uploaded"))                                  // final file upload
 
-        whenever(responseSpec.toBodilessEntity())
+        `when`(responseSpec.toBodilessEntity())
             .thenReturn(ResponseEntity.ok().build())                                   // fallback creation PUT
 
         // Act
@@ -780,13 +801,13 @@ class GithubServiceTest {
         val searchablesExceptionMessage = "Connection reset by peer"
 
         // 1. Stub GET checks (404 for main file check, 404 for searchables check)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. Stub PUT responses:
         // First PUT (patchSearchTree inside searchables block) throws an unexpected exception
         // Second PUT (final main file upload) succeeds and returns 200 OK
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenThrow(RuntimeException(searchablesExceptionMessage)) // searchables PUT fails
             .thenReturn(ResponseEntity.ok("uploaded"))                 // final upload succeeds
 
@@ -817,13 +838,13 @@ class GithubServiceTest {
         val criticalErrorMessage = "500 Internal Server Error"
 
         // 1. Stub GET checks (404 for main file check, 404 for searchables check)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. Stub PUT responses:
         // First PUT (patchSearchTree inside searchables block) succeeds
         // Second PUT (final main file upload) throws a critical error
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))                  // searchables succeeds
             .thenThrow(RuntimeException(criticalErrorMessage))          // final upload fails critically
 
@@ -853,13 +874,13 @@ class GithubServiceTest {
         val expectedPath = "uploads/john/kotlin/script.kt"
 
         // 1. Stub initial GET checks (404 for main file check, 404 for searchables check)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. Stub PUT responses:
         // First PUT (patchSearchTree inside searchables block) succeeds
         // Second PUT (final main file upload) succeeds with 201 CREATED
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))                                          // searchables patch
             .thenReturn(ResponseEntity.status(HttpStatus.CREATED).body("{\"content\": {}}"))   // final file upload
 
@@ -897,13 +918,13 @@ class GithubServiceTest {
         val expectedPath = "uploads/john/kotlin/script.kt"
 
         // 1. Stub GET checks (404 for main file check, 404 for searchables check)
-        whenever(responseSpec.toEntity(GithubContentResponseDto::class.java))
+        `when`(responseSpec.toEntity(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. Stub PUT responses:
         // First PUT (searchables patch) succeeds
         // Second PUT (final main file upload) throws a critical exception
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.ok("patched"))                  // searchables succeeds
             .thenThrow(RuntimeException(criticalErrorMessage))          // final upload fails critically
 
@@ -939,16 +960,16 @@ class GithubServiceTest {
         val expectedBase64Content = Base64.getEncoder().encodeToString(expectedFormattedContent.toByteArray())
 
         // 1. Stub fetchFileSha on the service spy to return null (file does not exist)
-        doReturn(null).whenever(service).fetchFileSha(eq(expectedUrl), anyOrNull())
+        doReturn(null).`when`(service).fetchFileSha(eq(expectedUrl), anyOrNull())
 
         // 2. Stub RestClient PUT chain to return a successful bodiless entity
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
 
         // Act
         service.writeError(username = username, error = error, message = message)
@@ -982,16 +1003,16 @@ class GithubServiceTest {
         val expectedBase64Content = Base64.getEncoder().encodeToString(expectedFormattedContent.toByteArray())
 
         // 1. Stub fetchFileSha on the service spy to return an existing SHA
-        doReturn(existingSha).whenever(service).fetchFileSha(eq(expectedUrl), anyOrNull())
+        doReturn(existingSha).`when`(service).fetchFileSha(eq(expectedUrl), anyOrNull())
 
         // 2. Stub RestClient PUT chain
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
 
         // Act
         service.writeError(username = username, error = error, message = message)
@@ -1026,16 +1047,16 @@ class GithubServiceTest {
         val expectedBase64Content = Base64.getEncoder().encodeToString(rawFormattedText.toByteArray())
 
         // 1. Stub fetchFileSha to return null
-        doReturn(null).whenever(service).fetchFileSha(eq(expectedUrl), anyOrNull())
+        doReturn(null).`when`(service).fetchFileSha(eq(expectedUrl), anyOrNull())
 
         // 2. Stub RestClient PUT fluent chain
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
 
         // Act
         service.writeError(username = username, error = error, message = message)
@@ -1068,15 +1089,15 @@ class GithubServiceTest {
         val expectedUrl = "$githubApiBase/$owner/$name/$urlSegment/uploads/$username/errors.md"
 
         // 1. Stub fetchFileSha to return null
-        doReturn(null).whenever(service).fetchFileSha(eq(expectedUrl), anyOrNull())
+        doReturn(null).`when`(service).fetchFileSha(eq(expectedUrl), anyOrNull())
 
         // 2. Stub RestClient PUT chain to throw an exception on retrieve/execute
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenThrow(RuntimeException(exceptionMessage))
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenThrow(RuntimeException(exceptionMessage))
 
         // Act
         service.writeError(username = username, error = error, message = message)
@@ -1105,20 +1126,20 @@ class GithubServiceTest {
         val expectedBase64Content = Base64.getEncoder().encodeToString(updateFile.bytes)
 
         // 1. Stub RestClient GET response (fetches existing file metadata and SHA)
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.body(GithubContentResponseDto::class.java))
             .thenReturn(GithubContentResponseDto(sha = existingSha))
 
         // 2. Stub RestClient PUT response (performs the edit upload)
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toEntity(String::class.java))
             .thenReturn(ResponseEntity.status(HttpStatus.OK).body("updated"))
 
         // Act
@@ -1156,11 +1177,11 @@ class GithubServiceTest {
         val expectedUrl = "$githubApiBase/$owner/$name/$urlSegment/$expectedPath"
 
         // 1. Stub RestClient GET chain returning null (simulating missing file body)
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(null)
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(null)
 
         // Act & Assert (Case 1: Body returns null)
         val exceptionNull = assertThrows<RuntimeException> {
@@ -1178,7 +1199,7 @@ class GithubServiceTest {
 
         // 2. Stub RestClient GET chain throwing 404 Exception
         clearInvocations(logger)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java))
+        `when`(responseSpec.body(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // Act & Assert (Case 2: Retrieve throws 404)
@@ -1206,18 +1227,18 @@ class GithubServiceTest {
         val sha = "sha-abc-123"
 
         // Set up default stubs for GET and PUT chains
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(any<String>())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(GithubContentResponseDto(sha = sha))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(any<String>())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(GithubContentResponseDto(sha = sha))
 
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(any<String>())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toEntity(String::class.java)).thenReturn(ResponseEntity.ok("ok"))
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(any<String>())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toEntity(String::class.java)).thenReturn(ResponseEntity.ok("ok"))
 
         // --- Case 1: With Username containing special characters and spaces ---
         val usernameWithSpaces = "john doe"
@@ -1262,20 +1283,20 @@ class GithubServiceTest {
         val expectedUrl = "$githubApiBase/$owner/$name/$urlSegment/$expectedPath"
 
         // 1. Stub RestClient GET response (successfully fetches file SHA)
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.body(GithubContentResponseDto::class.java))
             .thenReturn(GithubContentResponseDto(sha = existingSha))
 
         // 2. Stub RestClient PUT response (throws RuntimeException during execution)
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toEntity(String::class.java))
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toEntity(String::class.java))
             .thenThrow(RuntimeException(putErrorMessage))
 
         // Act & Assert
@@ -1308,20 +1329,20 @@ class GithubServiceTest {
         val expectedBase64 = Base64.getEncoder().encodeToString(data)
 
         // 1. Stub GET check to throw an exception (simulating new file / 404)
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.body(GithubContentResponseDto::class.java))
             .thenThrow(RuntimeException("404 Not Found"))
 
         // 2. Stub PUT request to succeed
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
 
         // Act
         service.uploadFileData(username = username, fileName = fileName, data = data)
@@ -1352,20 +1373,20 @@ class GithubServiceTest {
         val expectedBase64 = Base64.getEncoder().encodeToString(data)
 
         // 1. Stub GET check returning an existing SHA
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java))
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.body(GithubContentResponseDto::class.java))
             .thenReturn(GithubContentResponseDto(sha = existingSha))
 
         // 2. Stub PUT request to succeed
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toBodilessEntity()).thenReturn(ResponseEntity.ok().build())
 
         // Act
         service.uploadFileData(username = username, fileName = fileName, data = data)
@@ -1394,19 +1415,19 @@ class GithubServiceTest {
         val expectedUrl = "$githubApiBase/$owner/$name/$urlSegment/$expectedPath"
 
         // 1. Stub GET check returning null
-        whenever(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
-        whenever(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
-        whenever(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(null)
+        `when`(restClient.get()).thenReturn(requestHeadersUriSpec as RestClient.RequestHeadersUriSpec<Nothing>)
+        `when`(requestHeadersUriSpec.uri(expectedUrl)).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.header(any(), any())).thenReturn(requestHeadersSpec as RestClient.RequestHeadersSpec<Nothing>)
+        `when`(requestHeadersSpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.body(GithubContentResponseDto::class.java)).thenReturn(null)
 
         // 2. Stub PUT request throwing an exception
-        whenever(restClient.put()).thenReturn(requestBodyUriSpec)
-        whenever(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.body(any())).thenReturn(requestBodySpec)
-        whenever(requestBodySpec.retrieve()).thenReturn(responseSpec)
-        whenever(responseSpec.toBodilessEntity()).thenThrow(RuntimeException(errorMessage))
+        `when`(restClient.put()).thenReturn(requestBodyUriSpec)
+        `when`(requestBodyUriSpec.uri(expectedUrl)).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.header(any(), any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.body(any())).thenReturn(requestBodySpec)
+        `when`(requestBodySpec.retrieve()).thenReturn(responseSpec)
+        `when`(responseSpec.toBodilessEntity()).thenThrow(RuntimeException(errorMessage))
 
         // Act
         service.uploadFileData(username = username, fileName = fileName, data = data)

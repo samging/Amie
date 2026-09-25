@@ -66,7 +66,8 @@ class GithubService {
      *
      * @return A list of [GithubItemDto] representing the files found, or an empty list if an error occurs.
      */
-    fun listFilesGithub(): List<GithubItemDto> {
+    fun
+            listFilesGithub(): List<GithubItemDto> {
         logger.info("--- [SimpleService: listFilesGithub] START ---")
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
 
