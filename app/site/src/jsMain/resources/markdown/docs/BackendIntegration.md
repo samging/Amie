@@ -11,6 +11,12 @@ The desktop app, the Amie website (Kobweb site on port 8081) and the Amie backen
 backend accepts Keycloak access tokens directly, so the account you sign in with in the app is the same account
 the website shows, and what you publish from the app appears on the website's dashboard.
 
+Since the same day the backend keeps its files in the Amie S3 bucket (reached through the awsS3 service on port
+8088) instead of a GitHub repository: your packages under `uploads/<user>/<lang>/<file>`, your saved states under
+`uploads/<user>/state/<name>.json` and the error log of your app under `uploads/<user>/state/errors.jsonl`. The
+endpoint names the app calls did not change (`/list-github` is kept as an alias of the new `/packages`), and no
+`GITHUB_TOKEN` is needed anywhere anymore.
+
 ## Configuration
 
 `AMP/backend.json` (written with defaults on first start; no secrets, so it can be committed):
@@ -34,51 +40,56 @@ On a machine where Keycloak already listens on 8080, start the backend on anothe
 
 | Code | Endpoint | Token | Used by |
 |---|---|---|---|
-| `render/templates/Client.kt` `rest()` | `/get-device-status`, `/update-device-status`, `/fetch-endpoints`, `/list-github` (alias of `/packages`), `/list-github-metadata`, `/handle-login-error` | bearer when signed in | device dashboard, endpoints, plugins, device terminal |
+| `render/templates/Client.kt` `rest()` | `/get-device-status`, `/update-device-status`, `/fetch-endpoints`, `/list-github`, `/list-github-metadata`, `/handle-login-error` | bearer when signed in | device dashboard, endpoints, plugins, device terminal |
 | `backend/AmieBackend.kt` | `/me`, `/user-packages`, `/upload` | bearer, required | Models page: **Publish** on a model component |
-| `util/DownloadService.kt` | `/list-github` (alias of `/packages`) | none | package list text |
+| `backend/AmieBackend.kt` | `/errors` (`POST`, `GET`) | bearer; a guest's report goes to `/handle-login-error` | `ErrorReporter`: every ERROR console line |
+| `backend/AmieBackend.kt` | `/state`, `/state/{name}` (`GET`, `PUT`, `DELETE`) | bearer, required | the sandbox's `saveState` / `loadState` / `listStates` |
+| `util/DownloadService.kt` | `/list-github` | none | package list text |
 
 `Client.rest()` attaches `Authorization: Bearer <Keycloak access token>` through `AuthState.accessToken()`, which
 refreshes the token when it is about to expire. Guests send no token. An absolute URL passed as the slug is used
 as is; a path is joined to `baseUrl`. Failures land in `lastErrorMessage` and the dialog flags; only failures the
 server answered are reported to `/handle-login-error`.
 
-**Devices** are stored on the backend per username, in Postgres and in the bucket at
-`uploads/<user>/state/devices.json`. `AppBaseTemplate` calls `DeviceManager.setSession` with the
+**Devices** are stored on the backend per username. `AppBaseTemplate` calls `DeviceManager.setSession` with the
 Keycloak username whenever the session changes, so the backend sees the real user instead of a guest id. When the
 backend is unreachable the local `AMP/componentSettings.json` is kept (it used to be overwritten with `{}`).
-
-**Errors** the app logs at ERROR level are reported to the backend (`POST /errors` with the bearer; a guest's
-sign-in failures go to `/handle-login-error`) and appended to `uploads/<user>/state/errors.jsonl`. The website's
-dashboard shows them to the owner under "Errors from your app", with a button that clears the log.
-
-## The package store
-
-Everything a user publishes lives in one S3 bucket, reached only through the awsS3 service (port 8088); the
-backend holds no AWS credentials and calls that service over HTTP (`AMIE_S3_SERVICE_URL`). Keys under `uploads/`:
-
-| Key | What |
-|---|---|
-| `uploads/<user>/<lang>/<file>` | a published package file; `lang` is the `progLanguage` of the upload (`jar`, `onnx`, ...) |
-| `uploads/<user>/state/devices.json` | the user's device statuses |
-| `uploads/<user>/state/errors.jsonl` | the user's error log, one JSON object per line |
-
-Listings never include `.md` files or anything under `state/`. Every `download_url` is an HTTP address on the
-awsS3 service (`/api/aws/files/content?key=`), so a browser can fetch a file directly.
 
 ## Models page and package jars
 
 The Models page shows no backend status; it uses the Keycloak session for one thing: **Publish** on a model
 component calls `AmieBackend.publishModule`, which uploads `model.onnx` and `module.json` through `POST /upload`
-with `progLanguage=onnx` (stored in the bucket as `uploads/<user>/onnx/<file>`; when the awsS3 service is down the
-backend answers 502 and the page shows that). A guest pressing Publish is sent to the sign-in page;
-**Open website** in the header opens `siteUrl/dashboard`.
+with `progLanguage=onnx` (stored as `uploads/<user>/onnx/<file>` in the S3 bucket). The backend answers 200
+"File uploaded successfully", 400 with the reasons it refused a jar (a package jar must have `run(String): List`
+and `close()`) or 502 when the store is unreachable; the page shows the reason. A guest pressing Publish is sent to
+the sign-in page; **Open website** in the header opens `siteUrl/dashboard`.
 
 Package jars flow the other way and need no token. `initMod("name.jar")` in the sandbox fetches a jar the server
 lists (the website's `/api/jars` and `/api/jar-download?name=`, else the S3 service's `/api/aws/jars` and
 `/api/aws/jars/<name>`) into `AMP/pluginDir` and opens a new instance of it; `packages.available()` lists what the
 server offers. The S3 service address is `s3ServiceUrl` in `AMP/backend.json` (`AMIE_S3_URL` overrides it; default
 `http://192.168.1.114:8088`). See [Packages](/docs/sandbox-scripting#packages).
+
+## Error reports
+
+Every ERROR-level console entry (`logError`, `logInternal(..., LogLevel.ERROR)`, a script's `error("...")`) is also
+sent to the backend when a user is signed in: `logToConsole` hands it to `backend/ErrorReporter.kt`, which queues
+it and posts `{"error": <source>, "message": <text>}` to `POST /errors` from a background coroutine, so the console
+never waits. The same source and message are sent at most once a minute, messages are cut to 2000 characters, and
+guests are not reported (a guest's failed backend call still goes to `/handle-login-error` as before). A report
+that fails is written to the debug log only; it never becomes another console error. The backend appends each
+report to `uploads/<user>/state/errors.jsonl` (the last 200 are kept), the website's dashboard shows them to the
+owner under **Errors from your app** with a Clear button, and `AmieBackend.errors()` reads the same list
+(`GET /errors?username=`, newest first, `{time, error, message}`).
+
+## Saved states
+
+The backend keeps small JSON documents per user under `uploads/<user>/state/<name>.json`; your devices
+(`AMP/componentSettings.json`, synced through `/update-device-status`) are stored there as `devices`. The app reaches
+them through `AmieBackend`: `listStates()` (`GET /state`, the names), `loadState(name)` (`GET /state/{name}`, the
+JSON text or null), `saveState(name, json)` (`PUT /state/{name}`, any JSON up to 1 MiB) and `deleteState(name)`
+(`DELETE /state/{name}`, false when there was none). A name matches `[A-Za-z0-9._-]{1,64}`. Scripts get the first
+three as `saveState`, `loadState` and `listStates`, see [Saved states](/docs/sandbox-scripting#saved-states).
 
 ## Backend side (Amie repository)
 

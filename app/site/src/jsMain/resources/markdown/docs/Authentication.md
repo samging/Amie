@@ -105,7 +105,9 @@ hold the realm role `offline_access` (a default role for new users) and the clie
 scope (it is in the `amie` client's optional scopes). The access token lives 60 seconds, so every start refreshes it.
 
 On the next start `restore()` is run on a background thread and `AuthState.restoring` is true until it has decided;
-the welcome page's **Continue** waits for it so a signed-in user never lands on the login page. A session is
+the navigation starts on a blank `start` route (`AppBaseTemplate.kt`) that waits for it and then goes to the
+dashboard when a session came back, or to the welcome screen when none did, so a signed-in user sees neither the
+welcome nor the login page and there is no "Continue as" button. A session is
 restored as is when its access token is valid, refreshed when it expired, and dropped only when:
 
 - Keycloak answered and refused the refresh token (revoked, logged out elsewhere, offline session over), or

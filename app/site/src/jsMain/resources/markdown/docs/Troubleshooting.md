@@ -29,7 +29,7 @@ curl -s http://localhost:8080/realms/master/.well-known/openid-configuration | h
 `KEYCLOAK_CLIENT_SECRET`.
 
 **The browser sign-in hangs.** The realm's frontend URL points at an old LAN address. Fix it under Realm settings →
-General in the admin console (see [Keycloak setup](authentication.md#stale-frontend-url)).
+General in the admin console (see [Keycloak setup](/docs/authentication#stale-frontend-url)).
 
 **Port in use when signing in with the browser.** Change `redirectPort` in `AMP/keycloak.json` and add
 `http://localhost:<port>/*` to the client's redirect URIs.
@@ -43,7 +43,7 @@ General in the admin console (see [Keycloak setup](authentication.md#stale-front
 literally in the script (`environment(SettingsEnv("name", "profile"))` or `amie.import(SettingsEnv(...))`); it is
 read from the text before the script compiles.
 
-**modelBuilder fails to embed.** The encoder folder is missing; see [Getting started](getting-started.md#what-you-need).
+**modelBuilder fails to embed.** The encoder folder is missing; see [Getting started](/docs/getting-started#what-you-need).
 
 **metricsChart says there are no metrics.** The model was never built in this `AMP/`, or its name differs from the
 folder under `AMP/modules/`.

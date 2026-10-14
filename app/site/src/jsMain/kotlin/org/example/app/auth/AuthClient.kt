@@ -99,7 +99,15 @@ object AuthClient {
     }
 
     private suspend fun establish(result: org.example.app.components.HttpResult, wrongCredentials: String): SignIn {
-        if (result.status == 401 || result.status == 400) return SignIn.Failure(wrongCredentials)
+        if (result.status == 401 || result.status == 400) {
+            // Keycloak refusing the *client* (no or wrong client secret on the site server) is not the person's fault
+            val error = runCatching { jwtJson.parseToJsonElement(result.text).jsonObject.string("error") }.getOrNull()
+            if (error == "unauthorized_client" || error == "invalid_client") {
+                console.error("sign-in: Keycloak refused the amie client ($error); set KEYCLOAK_CLIENT_SECRET on the site server")
+                return SignIn.Failure("Sign-in is not available right now.")
+            }
+            return SignIn.Failure(wrongCredentials)
+        }
         if (!result.ok) return SignIn.Failure("The sign-in service is unavailable.")
         val tokens = runCatching { jwtJson.decodeFromString(TokenResponse.serializer(), result.text) }.getOrNull()
             ?: return SignIn.Failure("The sign-in service gave an unexpected answer.")

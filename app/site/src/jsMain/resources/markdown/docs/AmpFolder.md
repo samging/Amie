@@ -6,22 +6,32 @@ title: The AMP folder
 
 # The AMP folder
 
-Everything the app writes lives in `AMP/` inside its working directory (`amieApplication/desktopApp/AMP/` when
-started with `./gradlew :desktopApp:run`). Nothing is kept anywhere else on the machine, so copying this folder
-moves your scripts, models, metrics, plugins and sign-in to another checkout.
+Everything the app writes lives in `AMP/`. Started with `./gradlew :desktopApp:run` that is `AMP/` inside the
+working directory (`amieApplication/desktopApp/AMP/`). The packaged app (DMG, MSI, DEB) has no useful working
+directory, so it keeps AMP in the user's application-data folder: `~/Library/Application Support/amie pilot/AMP` on
+macOS, `%APPDATA%\\amie pilot\\AMP` on Windows, `~/.local/share/amie-pilot/AMP` on Linux. On its first start that
+folder is seeded from the `AMP/` shipped inside the app (`backend.json`, `componentSettings.json`, `pluginDir/`,
+`env/`, `sample-intents.csv`); the dummy model is written next. `AMIE_AMP_DIR` names another folder for either mode.
+Nothing is kept anywhere else on the machine, so copying this folder moves your scripts, models, metrics, plugins
+and sign-in to another checkout or machine.
 
 | Path | What it holds | Tracked in git |
 |---|---|---|
 | `pluginDir/main.kts` | The sandbox script, saved as you type | yes |
 | `pluginDir/*.jar` | Package jars, opened by scripts with `initMod("x.jar")`; jars fetched from the Amie server land here | yes |
 | `pluginDir/*.jar.source.json` | Where a fetched jar came from: download URL, website page, version, fetch time | yes |
+| `pluginDir/collections.json` | The package collections: name and member jars | yes |
+| `pluginDir/*.jar.sessions.log` | What every session of that package was asked and answered (open, run, error, close lines) | yes |
 | `modules/<name>/model.onnx` | An exported model | yes |
 | `modules/<name>/module.json` | Its manifest: encoder, dimensions, labels | yes |
 | `modules/<name>/metrics.json` | One validation entry per build (tables and charts read this) | yes |
 | `modules/<name>/serving.json` | Host, port, path, methods, listening | yes |
 | `modules/<name>/incoming.jsonl` | Requests the served model received | yes |
+| `modules/<name>/plots/*.png` | The metrics plots (summary, labels, confusion, history), drawn again when `metrics.json` changes | yes |
+| `modules/<name>/sessions.log` | What every session of that model was asked and answered (open, run, error, close lines) | yes |
 | `env/<name>/env.lock.json` | What a script environment has imported | yes |
 | `env/caches/` | Maven downloads | yes |
+| `sample-intents.csv` | 45 `text,label` rows over greeting / lights / weather, written on first start for trying New model and Validate | yes |
 | `relations.json` | Which test file belongs to which training file (`relate`) | yes |
 | `componentSettings.json` | Configured devices | yes |
 | `backend.json` | Amie backend, website and S3 service addresses | yes |

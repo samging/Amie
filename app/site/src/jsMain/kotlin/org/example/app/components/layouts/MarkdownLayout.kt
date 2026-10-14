@@ -91,13 +91,13 @@ val DocsNavStyle = CssStyle {
 
 /** The desktop app documentation, in reading order (see resources/markdown/docs). */
 val DocsPages = listOf(
-    "Start here" to listOf("docs" to "Overview", "docs/getting-started" to "Getting started", "docs/sign-in" to "Signing in"),
+    "Start here" to listOf("docs" to "Overview", "docs/getting-started" to "Getting started"),
     "Working in the app" to listOf(
-        "docs/sandbox" to "The sandbox", "docs/sandbox-scripting" to "Scripting API",
+        "docs/sandbox" to "The sandbox", "docs/sessions" to "Running sessions", "docs/sandbox-scripting" to "Scripting API",
         "docs/models" to "Models and metrics", "docs/serving" to "Serving a model", "docs/devices" to "Devices"
     ),
     "Reference" to listOf(
-        "docs/amp-folder" to "The AMP folder", "docs/authentication" to "Keycloak setup",
+        "docs/amp-folder" to "The AMP folder", "docs/sign-in" to "Signing in", "docs/authentication" to "Keycloak setup",
         "docs/backend-integration" to "Amie backend", "docs/models-page" to "Models page",
         "docs/troubleshooting" to "Troubleshooting"
     ),

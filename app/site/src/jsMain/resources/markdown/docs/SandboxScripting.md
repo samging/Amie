@@ -49,7 +49,7 @@ Defined in `ScriptLogger.kt`. The most used calls (prefix `amie.` optional):
 | `sourceFile("file.csv", column = "")` | Raw rows keyed by index, optionally one column |
 | `modelBuilder("name", data)` | Trains and exports an intent classifier (below) |
 | `modelBuilder("name") { ... }` | Same, the lambda returns the data |
-| `initMod("name")` | Opens an exported model as a session (listed on the Models page, terminable there); `.inference("text")` returns `label:probability` sorted best first; `.close()`. `initMod("dummy")` works on a fresh checkout |
+| `initMod("name")` | The session of an exported model: the one already open, else a new one (listed on the Models page, terminable there); `.inference("text")` returns `label:probability` sorted best first; `.close()`. `initMod("dummy")` works on a fresh checkout. How sessions live and die: [Running sessions](/docs/sessions) |
 | `initMod()` | The bundled BERT NER model |
 | `initMod("name.jar")` | A new instance of a package jar behind the same interface: `.inference("text")` calls its `run(text)`, `.close()` its `close()`. Looked up in the env, `AMP/pluginDir`, as a path, then fetched from the Amie server (below) |
 | `validateMetrics("name", labels = listOf(...))` | Prints the stored validation table of a model |
@@ -60,6 +60,7 @@ Defined in `ScriptLogger.kt`. The most used calls (prefix `amie.` optional):
 | `importModelOnnx("path.onnx")` | Any ONNX model behind the `inference / getStatus / close` interface |
 | `sessions.print()`, `sessions.cancel("name")`, `sessions.cancelAll()` | The open ORT sessions |
 | `packages.available()`, `packages.fetch("x.jar")`, `packages.print()`, `packages.closeAll()` | The package jars the server offers, a download into `AMP/pluginDir`, the open package sessions |
+| `saveState("name", json)`, `loadState("name")`, `listStates()` | A JSON text kept per user on the Amie backend (signed in): store it under a name, read it back (null when absent), list the names |
 | `jars.run("plugin.jar")`, `jars.quit("plugin.jar")` | Runs a static `run()` or `main` of a plugin jar once; not a package session |
 | `implementation("group:module:version")`, `amie.import("...")` | Add a package to the script's environment |
 | `implementation("my.jar")`, `amie.import("my.jar")` | Add a jar file to the environment |
@@ -80,7 +81,7 @@ log(m.inference("turn the lights on").first())
 m.close()
 ```
 
-The charts are described with examples in [Models and metrics](models.md#reading-the-metrics).
+The charts are described with examples in [Models and metrics](/docs/models#reading-the-metrics).
 
 ## Packages
 
@@ -108,49 +109,50 @@ packages.print()                                                   // open packa
 The package class is the manifest's `Main-Class` when it satisfies the contract, else a class implementing an
 interface named `AmiePackage`, else the first class in the jar that does. `run` executes on the calling thread with
 the jar's class loader as context loader, and what it returns is shown one line per element. Open package sessions
-also appear under **SESSIONS** on the [Models page](/docs/models-page).
+also appear under **Sessions** on the [Models page](/docs/models-page).
 
-Accepted data shapes: a `DataSource` from `source`, `List<Pair<text, label>>`, `Map<label, List<text>>`, or
-rows of `[text, ..., label]`.
+### Session logs
 
-### What modelBuilder does
+(How to work with sessions day to day, keep them warm between runs and close them is in [Running sessions](/docs/sessions).)
 
-`buildClassifier` in `jetbrainDLBuilder/JetBuilder.kt`:
+Every session of a model or a package keeps a log of what it was asked and answered: an `open` line, one `run`
+line per `inference` call with the text, the first answers and the time it took, an `error` line when the call
+threw, and a `close` line with the number of runs. The Models page shows it behind **Log** on the session, and the
+same lines are appended to `AMP/modules/<name>/sessions.log` for a model and `AMP/pluginDir/<jar>.sessions.log`
+for a package (`modules/SessionLog.kt`), so a terminated session's history stays readable:
 
-1. **checking data**: at least 2 labels, 5 samples per label; imbalance, duplicate and conflicting texts become
-   warnings stored with the metrics.
-2. **embedding**: every text goes through the BERT encoder; the hidden states are mean-pooled into one vector each.
-3. **training**: a two-layer network (`dense[16 relu] -> dense[labels] softmax`) trained with Adam for 150 epochs on
-   plain Kotlin arrays (no native TensorFlow needed).
-4. **validating**: on the related test file, or on a stratified 20% split; precision, recall, F1 per label.
-5. **exporting**: the layers are written by hand as ONNX (opset 13) to `AMP/modules/<name>/model.onnx` with
-   `module.json` (encoder, dims, labels) and `metrics.json` (one entry per build).
-
-### Build progress
-
-`ModelBuildProgress` (`jetbrainDLBuilder/BuildProgress.kt`) is a `StateFlow` the builder updates at every phase and
-step: text *n* of *N* while embedding, epoch *n* of 150 while training, each validation sample, then export. Phases are
-weighted (embedding 60%, training 30%, ...) into one fraction that drives:
-
-- the **Run** button ring in the sandbox sidebar,
-- the **status line** under the console header (`modelBuilder 'intents' · training 72/150 · epoch 72 loss 0.3102 accuracy 0.912` with a bar),
-- the **BUILDING** card on the Models page.
-
-Every 25 epochs the loss and accuracy are also logged to the console. Finished builds (with their duration and
-outcome) stay in `ModelBuildProgress.history`; the status line shows the last one while idle.
-
-## Serving a model
-
-Open the Models page, expand a model, set host, port, path and methods, save, and switch **Listen for incoming data**
-on. Then:
-
-```bash
-curl -X POST http://127.0.0.1:8765/models/intents/predict -d '{"text":"turn the lights on"}'
-curl 'http://127.0.0.1:8765/models/intents/predict?text=turn+the+lights+on'
+```
+2026-10-14T17:40:02.118Z dummy #3 open  opened as session #3
+2026-10-14T17:40:05.402Z dummy #3 run   "turn the lights on" -> lights:0.61, weather:0.22, greeting:0.17 (14 ms)
+2026-10-14T17:41:10.009Z dummy #3 close closed after 1 runs
 ```
 
-Every request is appended to `AMP/modules/<name>/incoming.jsonl` and counted on the Models page. Models that were
-listening when the app closed start again on the next launch.
+### Building a package
+
+The **Packages** tab of the Models page reads a jar's classes and resources, the Java it needs (from the class
+file version) and what built it (the manifest), so a jar can be checked before a script opens it. The shape of a
+build that produces one:
+
+```kotlin
+plugins { kotlin("jvm") version "2.1.0" }
+repositories { mavenCentral() }
+kotlin { jvmToolchain(17) }
+tasks.jar {
+    archiveFileName = "echo-1.0.jar"
+    manifest { attributes("Main-Class" to "org.example.Echo") }
+}
+```
+
+```kotlin
+package org.example
+
+class Echo {
+    fun run(text: String): List<String> = listOf("echo: $text")
+    fun close() {}
+}
+```
+
+The app runs on Java 21, so a jar compiled for Java 21 or older loads; the page says so next to the class file version.
 
 Accepted data shapes: a `DataSource` from `source`, `List<Pair<text, label>>`, `Map<label, List<text>>`, or
 rows of `[text, ..., label]`.
@@ -180,6 +182,19 @@ weighted (embedding 60%, training 30%, ...) into one fraction that drives:
 
 Every 25 epochs the loss and accuracy are also logged to the console. Finished builds (with their duration and
 outcome) stay in `ModelBuildProgress.history`; the status line shows the last one while idle.
+
+## Saved states
+
+Signed in with Keycloak, a script can keep small JSON documents on the Amie backend, which stores them as
+`uploads/<user>/state/<name>.json` next to your packages (your devices live there as `devices`). The calls block
+like a package fetch and print one line each; a failure (a guest, an unreachable backend, a bad name) is one ERROR
+line and `loadState` then returns null. A name matches `[A-Za-z0-9._-]{1,64}`, a document is at most 1 MiB.
+
+```kotlin
+saveState("labels", """{"intents": ["greet", "bye"]}""")   // PUT /state/labels
+listStates().forEach { log(it) }                                 // devices, labels, ...
+val labels = loadState("labels")                                 // the JSON text, null when there is none
+```
 
 ## Serving a model
 

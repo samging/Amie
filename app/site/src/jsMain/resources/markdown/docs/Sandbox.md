@@ -36,6 +36,15 @@ What happens underneath: the script's dependency calls are read **before** it co
 the classpath (configuration phase); then the script runs with the Kotlin JSR-223 engine on a background thread
 (execution phase). Details in [Scripting API](/docs/sandbox-scripting).
 
+## Sessions: what stays open after a run
+
+A script ends; what it opened does not. `initMod("name")` opens a **session** of a model (one per model, reused by
+the next run), `initMod("name.jar")` a session of a package (a fresh instance per call), and both stay open until
+they are closed in a script or terminated on the Models page, **Sessions** tab, where each one shows its runs and a
+log of what it was asked and answered. So the usual loop is: open the model at the top of the script, ask it,
+read the console, edit, Run again (instant, the model is already loaded), and close it when you are done.
+All of it, with the pitfalls, is in [Running sessions](/docs/sessions).
+
 ## The output console
 
 Every line has a time, a **level badge**, the source (`main.kts`, `sandbox`, `internal`) and the message. Rows are

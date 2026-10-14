@@ -1,22 +1,89 @@
-do api for the google disk
+# Amie
 
-Runs on kobweb, before run you must export JAVA_HOME env in order to run locally.
-# Start Backend
-```./gradlew bootRun -Dorg.gradle.jvmargs="-Xmx2g" &```
-# Start Frontend
-```./gradlew :site:kobwebStart &```
-# Start the S3 service (jar downloads)
-```cd awsS3 && ./gradlew bootRun &```
+The package store for Amie packages and the home of the desktop app's documentation. Three services make the
+site work, plus Keycloak for sign-in:
+
+| Service | Folder | Port | What it is |
+|---|---|---|---|
+| S3 service | `awsS3/` | 8088 | Spring Boot 3, in front of the S3 bucket `setup-demo-sams` (eu-north-1): the only package store |
+| Backend | `packageRepository/` | 8080, or 8090 when Keycloak holds 8080 | Spring Boot 4: users (Postgres), packages, device states, error logs; talks to the S3 service over HTTP |
+| Website | `app/site/` | 8081 | Kobweb: the store, downloads, dashboard, admin and `/docs`; proxies the backend as `/api/...` |
+| Keycloak | Docker | 8080 | realm `master`, client `amie` |
+
+## Running
+
+```bash
+./run.sh                    # start the S3 service, then the backend, then the site (skips what already runs)
+./run.sh status             # which ports answer, with the addresses to open
+./run.sh logs               # follow logs/s3.log, logs/backend.log, logs/site.log
+./run.sh --restart          # stop and start again
+./run.sh --only backend,s3  # a subset: s3, backend, site
+./run.sh stop               # stop all three (the site through kobwebStop)
+```
+
+The script needs, and checks for, before it starts anything:
+
+- **JDK 21** at `/Users/samuel/Library/Java/JavaVirtualMachines/ms-21.0.10/Contents/Home` (another path: `JAVA_HOME_21`).
+  Every module has its own Gradle wrapper; running `./gradlew` by hand needs the same `JAVA_HOME` exported.
+- **AWS credentials** for the S3 service: profile `[default]` in `~/.aws/credentials` (another one: `AWS_PROFILE`), or
+  `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` in the environment. Without them the S3 service starts but every
+  listing fails, so the script refuses to start.
+- **Postgres** on `localhost:5432` with the database `AmiesUsersDB` (`packageRepository/src/main/resources/application.properties`),
+  for the backend's `users` table.
+- **Keycloak** on `http://localhost:8080` (a warning only; without it nobody can sign in). When Keycloak holds 8080 the
+  backend takes **8090** and the site is told (`AMIE_BACKEND_URL`). The browser-side config and the desktop app
+  default to port 8080 for the backend, so on such a machine set `localStorage.setItem("amie.backendUrl",
+  "http://<host>:8090")` in the browser and `AMIE_BACKEND_URL=http://<host>:8090` (or `baseUrl` in `AMP/backend.json`)
+  for the desktop app.
+
+When the machine's LAN address changes (DHCP), two things go stale: the Keycloak `amie` client only redirects back
+to the origins it knows, so the browser sign-in from the new address fails with "Invalid parameter: redirect_uri",
+and the backend accepts tokens from one issuer. Fix both with:
+
+```bash
+scripts/keycloak-allow-origin.sh          # adds http://<LAN address>:8081/* to the client (or pass an origin)
+./run.sh --restart --only backend         # picks up the new address as KEYCLOAK_ISSUER
+```
+
+`./run.sh status` prints the current LAN address and the issuer in use.
+
+Logs land in `logs/`, pids in `.run/`; both are ignored by git. The services can still be run one at a time by hand:
+
+```bash
+cd awsS3 && ./gradlew bootRun                                              # S3 service, port 8088
+cd packageRepository && AMIE_BACKEND_PORT=8090 ./gradlew bootRun           # backend
+cd app && ./gradlew :site:kobwebStart                                      # site, port 8081 (kobwebStop to stop)
+```
+
+`bootRun.sh` is the old backend-only starter and still works.
+
+## Documentation
+
+`/docs` on the site is the desktop app's documentation: the MkDocs pages of the `amieAppStable` repository
+(`docs/*.md`) turned into Kobweb markdown pages under `app/site/src/jsMain/resources/markdown/docs/`. The pages are
+generated, not edited here. After the app's docs change, regenerate them and rebuild the site:
+
+```bash
+scripts/sync-docs.sh                     # reads ../amieAppStable/docs, or the folder in $AMIE_APP_DOCS / the first argument
+cd app && ./gradlew :site:kspKotlinJs    # compiles the pages; a bare <placeholder> outside backticks breaks this
+```
+
+The script adds the front matter each page needs (`root`, `routeOverride: /docs/<name>`, the title from the first
+heading), rewrites `other.md` and `other.md#anchor` links to `/docs/other`, escapes bare `<placeholders>` outside
+code, drops pages that no longer exist in the app docs, and swaps the "built with MkDocs" paragraph of the overview
+page for one that fits the site.
 
 ## Environment
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `AMIE_BACKEND_PORT` | backend | listen port (default 8080; use 8090 when Keycloak holds 8080 on the same machine) |
-| `KEYCLOAK_ISSUER` | backend | the `iss` claim of the realm's tokens: realm frontend URL + `/realms/master` (default `http://192.168.1.114:8080/realms/master`) |
+| `AMIE_BACKEND_PORT` | backend | listen port (default 8080; `run.sh` picks 8090 by itself when Keycloak holds 8080 on the same machine) |
+| `AWS_PROFILE`, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | awsS3 | how the S3 service signs its bucket calls (default: profile `default` from `~/.aws/credentials`, region eu-north-1) |
+| `JAVA_HOME_21` | run.sh | the JDK 21 to run every Gradle build with |
+| `KEYCLOAK_ISSUER` | backend, site server | the `iss` claim of the realm's tokens. The realm has no fixed frontend URL, so it is the address the browser used for Keycloak; `run.sh` defaults to `http://<this machine's LAN address>:8080/realms/master` |
 | `KEYCLOAK_JWKS_URI` | backend | where the backend reaches the realm's certs endpoint (default `http://localhost:8080/realms/master/protocol/openid-connect/certs`) |
 | `KEYCLOAK_URL` | site server | where the Kobweb server reaches Keycloak (default `http://localhost:8080`) |
-| `KEYCLOAK_CLIENT_SECRET` | site server | the confidential `amie` client's secret for `/api/keycloak/token`; never shipped to browsers |
+| `KEYCLOAK_CLIENT_SECRET` | site server | the confidential `amie` client's secret for `/api/keycloak/token`; never shipped to browsers. Without it every sign-in on the site fails (Keycloak logs `invalid_client_credentials`, the page says sign-in is not available). `run.sh` reads it from the desktop app's `AMP/keycloak.json` when unset |
 | `AMIE_SITE_URL` | site server, backend | public origin of the site: the OAuth redirect URI, and the `html_url` links in the backend's package listings (default `http://localhost:8081`) |
 | `AMIE_BACKEND_URL` | site server | where the Kobweb server reaches the backend for its `/api/...` proxies (default `http://localhost:8080`) |
 | `AMIE_S3_SERVICE_URL` | site server, backend | the awsS3 service in front of the S3 bucket, the only package store (default `http://localhost:8088`) |
@@ -28,7 +95,7 @@ Runs on kobweb, before run you must export JAVA_HOME env in order to run locally
 |---|---|
 | `/` | The package store: search, authors, packages |
 | `/downloads` | Jar downloads, listed from the S3 bucket through the site's `/api/jars` and `/api/jar-download` routes |
-| `/docs` | The desktop app documentation (the MkDocs pages from `amieAppStable/docs`, kept in `app/site/src/jsMain/resources/markdown/docs`) |
+| `/docs` | The desktop app documentation, generated from `amieAppStable/docs` by `scripts/sync-docs.sh` (see Documentation above) |
 | `/navigateto` | Upload a package jar (signed in) |
 | `/dashboard?username=` | One author's packages and devices; owners can replace and delete, and see the errors their app reported (`/api/errors`, cleared with `/api/errors-clear`) |
 | `/loginpage` | Sign in with username and password, with the browser (SSO), or by scanning a QR code on a phone |

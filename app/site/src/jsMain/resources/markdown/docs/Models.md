@@ -13,6 +13,9 @@ when `AMP/modules` is empty, so `initMod("dummy")` and the Models page work befo
 
 ## Building one
 
+From the Models page: **+ New model**, pick the csv (or **Sample data**, `AMP/sample-intents.csv`), Build. From
+a script:
+
 ```kotlin
 val train = source("intents.csv")        // columns: text,label (header names like text/label/intent are detected)
 relate(train, "intents-test.csv")        // optional: validate on this file instead of a 20% split
@@ -27,13 +30,20 @@ become warnings), embeds every text, trains for 150 epochs, validates, and expor
 | File | Content |
 |---|---|
 | `model.onnx` | The trained layers, written as ONNX (opset 13) |
-| `module.json` | Encoder path, input and output sizes, pooling, the label list |
+| `module.json` | Encoder path, input and output sizes, pooling, the label list, the data file it was trained on |
 | `metrics.json` | **One entry per build**: accuracy, macro F1, per-label precision / recall / F1 / support, the confusion matrix, warnings, what it was validated on |
 | `serving.json` | Host, port, path, methods and whether it listens |
 | `incoming.jsonl` | Every request the served model received |
 
 Accepted data shapes: a `DataSource` from `source(...)`, `List<Pair<text, label>>`, `Map<label, List<text>>`, or
 rows of `[text, …, label]`.
+
+## Validating without training
+
+A run can be added to `metrics.json` without rebuilding: on the Models page, **Validate on file** or **Validate
+on sample data** runs the model on every row of a csv and stores accuracy, F1 per label and the confusion
+matrix as one more run, with the file name as the validation set (`modules/ModelValidation.kt`). This is how the
+dummy model, which is written rather than trained, gets metrics at all.
 
 ## Reading the metrics
 
@@ -99,10 +109,12 @@ was never built logs an error telling you to run `modelBuilder` first.
 
 ### On the Models page
 
-The **Models** page (second sidebar icon) does not show figures; use the console calls above. Expand a card for labels,
-encoder and serving settings. The page has no metrics: every model is a component with Configure, Listen / Stop,
-Open session and Publish (Keycloak sign-in) actions, and every open session can be terminated there. Details in
-[Models page](/docs/models-page).
+The **Models** page (second sidebar icon) shows the same numbers as bars: accuracy and macro F1 of the last
+build, F1 per label with precision, recall and support, and the accuracy of every build, read from
+`metrics.json`. The ASCII charts and the confusion matrix stay in the console. The page also builds a model from
+a csv (**+ New model**: name, data file, optional test file), and every model is a component with Configure,
+Listen / Stop, Open session and Publish (Keycloak sign-in) actions; every open session can be terminated there
+and its log (what it was asked and answered) read. Details in [Models page](/docs/models-page).
 
 ## Using a model from a script
 
@@ -114,12 +126,13 @@ m.close()
 
 `initMod()` with no name opens the bundled NER model; `importModelOnnx("path.onnx")` opens any ONNX model behind
 the same `inference / getStatus / close` interface. Every `initMod("name")` is a session the Models page lists
-and can terminate; ORT sessions are also printed with `sessions.print()`.
+and can terminate; what it was asked and answered is logged per session (behind **Log** on the page and in
+`AMP/modules/<name>/sessions.log`). ORT sessions are also printed with `sessions.print()`.
 
 ## Publishing
 
 Signed in with Keycloak, expand a model on the Models page and press **Publish**: `model.onnx` and `module.json`
-are uploaded through the Amie backend (`POST /upload`, `progLanguage=onnx`) into the S3 bucket at
-`uploads/<user>/onnx/<file>`, and the website's dashboard lists them. A guest pressing it is sent to the sign-in
-page. Requires the backend and the awsS3 service from [Amie backend](/docs/backend-integration). Package jars go the other way: a
+are uploaded to your package folder on the Amie backend (`POST /upload`, `progLanguage=onnx`) and the website's
+dashboard lists them. A guest pressing it is sent to the sign-in page. Requires the backend from
+[Amie backend](/docs/backend-integration), which stores the files in the Amie S3 bucket. Package jars go the other way: a
 script opens one the server lists with `initMod("name.jar")` (see [Packages](/docs/sandbox-scripting#packages)).
