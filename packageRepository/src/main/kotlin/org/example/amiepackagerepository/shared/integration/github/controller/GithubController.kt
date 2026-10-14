@@ -14,9 +14,14 @@ import org.example.amiepackagerepository.shared.transactionalMiddleware.service.
 import org.example.amiepackagerepository.shared.transactionalMiddleware.enumerables.DeviceActions
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.DeviceDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.TransactionalStatusRepository
+import org.example.amiepackagerepository.shared.packages.AmiePackage
+import org.example.amiepackagerepository.shared.packages.JarInspector
+import org.example.amiepackagerepository.shared.packages.JarMirrorService
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.CrossOrigin
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -49,7 +54,9 @@ class GithubController(
     private val driveService: Drive,
     private val simpleService: GithubService,
     private val userService: UserService,
-    private val deviceService: TransactionalStatusRepository
+    private val deviceService: TransactionalStatusRepository,
+    private val jarInspector: JarInspector,
+    private val jarMirror: JarMirrorService
 ) {
     private val logger = LoggerFactory.getLogger(GithubController::class.java)
 
@@ -86,13 +93,17 @@ class GithubController(
     }
 
     /**
-     * Uploads a code snippet to GitHub. Validates the user's JWT token first.
+     * Uploads a package to GitHub. Validates the user's JWT token first. A `.jar` upload (or any upload
+     * sent with `progLanguage=jar`, which is what the website's upload page sends) must be a valid Amie
+     * package: a jar with a class exposing `run(String): List` and `close()` (see [AmiePackage]); it is
+     * then also mirrored to the S3 bucket for the downloads page. Other file types (for example the
+     * desktop app's ONNX models) are stored as before.
      *
      * @param file The file to upload.
      * @param progLanguage The programming language of the snippet (for directory categorization).
      * @param username The owner of the file.
      * @param authHeader The "Authorization" Bearer token.
-     * @return A success or error message string.
+     * @return 200 with a message, 400 with the reasons a jar was refused.
      * @throws ResponseStatusException 401 if unauthorized, 403 if forbidden.
      */
     @PostMapping("/upload")
@@ -101,7 +112,7 @@ class GithubController(
         @RequestParam(value = "progLanguage", defaultValue = "unknown") progLanguage: String,
         @RequestParam("username") username: String,
         @RequestHeader("Authorization") authHeader: String
-    ): String {
+    ): ResponseEntity<String> {
         logger.info("--- [POST /upload] START (user: {}, file: {}, lang: {}) ---", username, file.originalFilename, progLanguage)
         val token = authHeader.removePrefix("Bearer ")
 
@@ -115,19 +126,62 @@ class GithubController(
             throw ResponseStatusException(HttpStatus.FORBIDDEN)
         }
 
+        val mustBeJar = progLanguage.equals("jar", ignoreCase = true) || JarInspector.isJarName(file.originalFilename)
+        val bytes = if (mustBeJar) file.bytes else null
+        if (bytes != null) {
+            val inspection = jarInspector.inspect(file.originalFilename, bytes)
+            if (!inspection.valid) {
+                logger.info("CONTROLLER: Refused jar '{}' from '{}': {}", file.originalFilename, username, inspection.problems)
+                return ResponseEntity.badRequest().body(inspection.problems.joinToString("; "))
+            }
+            logger.info("CONTROLLER: Jar '{}' exposes package classes {}", file.originalFilename, inspection.entryClasses)
+        }
+
         return try {
             simpleService.uploadFile(username, progLanguage, file)
+            if (bytes != null) jarMirror.mirror(username, file.originalFilename ?: "package.jar", bytes)
             userService.logActivity(username, "UPLOAD_PACKAGE", "Uploaded package: ${file.originalFilename}")
             logger.info("CONTROLLER: Upload successful for user '{}', file '{}'", username, file.originalFilename)
-            "File uploaded successfully"
+            ResponseEntity.ok("File uploaded successfully")
         } catch (e: GoogleJsonResponseException) {
             logger.error("CONTROLLER: Google API Error: {}", e.details?.message ?: e.message)
-            "Google API Error: ${e.details?.message ?: e.message}"
+            ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("The package could not be stored")
         } catch (e: Exception) {
             logger.error("CONTROLLER: Unexpected error during upload: {}", e.message, e)
-            "Error uploading file: ${e.message}"
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("The package could not be stored")
         } finally {
             logger.info("--- [POST /upload] END ---")
+        }
+    }
+
+    /**
+     * Removes a file the user uploaded, the reverse of /upload: the desktop app's "remove publish".
+     *
+     * @param fileName The name of the file to remove.
+     * @param progLanguage The language folder it was uploaded under.
+     * @param username The owner of the file; must be the token's subject.
+     * @return 200 with "removed" or "not there", 401 or 403 otherwise.
+     */
+    @DeleteMapping("/upload")
+    fun removeCodeSnippet(
+        @RequestParam("filename") fileName: String,
+        @RequestParam(value = "progLanguage", defaultValue = "unknown") progLanguage: String,
+        @RequestParam("username") username: String,
+        @RequestHeader("Authorization") authHeader: String
+    ): ResponseEntity<String> {
+        logger.info("--- [DELETE /upload] START (user: {}, file: {}, lang: {}) ---", username, fileName, progLanguage)
+        val token = authHeader.removePrefix("Bearer ")
+        val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
+        if (claims.subject != username) throw ResponseStatusException(HttpStatus.FORBIDDEN)
+        return try {
+            val removed = simpleService.deleteFile(username, progLanguage, fileName)
+            if (removed) userService.logActivity(username, "REMOVE_PACKAGE", "Removed package: $fileName")
+            ResponseEntity.ok(if (removed) "removed" else "not there")
+        } catch (e: Exception) {
+            logger.error("CONTROLLER: Unexpected error during delete: {}", e.message, e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("The package could not be removed")
+        } finally {
+            logger.info("--- [DELETE /upload] END ---")
         }
     }
 

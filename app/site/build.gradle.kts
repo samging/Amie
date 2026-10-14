@@ -15,9 +15,10 @@ version = "1.0-SNAPSHOT"
 kobweb {
     app {
         index {
-            description.set("Powered by Kobweb")
+            description.set("Amie: packages, downloads and docs for Arduino board management")
             head.add {
                 link(rel = "stylesheet", href = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css")
+                link(rel = "stylesheet", href = "https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap")
             }
         }
     }
@@ -42,6 +43,7 @@ kotlin {
             implementation(libs.kobwebx.markdown)
             implementation(libs.kotlinx.serialization.json)
             implementation(npm("highlight.js", "11.9.0"))
+            implementation(npm("qrcode", "1.5.3"))
             implementation("io.ktor:ktor-client-core:2.3.12")
             implementation("io.ktor:ktor-client-logging:2.3.12")
             implementation("io.ktor:ktor-client-content-negotiation:2.3.12")

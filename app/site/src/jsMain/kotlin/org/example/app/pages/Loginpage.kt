@@ -1,211 +1,182 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
-import androidx.compose.runtime.NoLiveLiterals
-import com.varabyte.kobweb.browser.api
+import com.varabyte.kobweb.compose.css.FontWeight
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
+import com.varabyte.kobweb.silk.components.navigation.Link
+import com.varabyte.kobweb.silk.style.CssStyle
+import com.varabyte.kobweb.silk.style.breakpoint.Breakpoint
+import com.varabyte.kobweb.silk.style.toAttrs
+import com.varabyte.kobweb.silk.theme.colors.ColorMode
 import kotlinx.browser.window
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
+import org.example.app.auth.AuthClient
+import org.example.app.auth.DevicePoll
+import org.example.app.auth.DeviceStart
+import org.example.app.auth.SignIn
+import org.example.app.components.layouts.PageLayout
+import org.example.app.components.widgets.*
+import org.example.app.config.AmieConfig
+import org.example.app.config.encodeURIComponent
+import org.example.app.toSitePalette
 import org.jetbrains.compose.web.attributes.InputType
-import org.jetbrains.compose.web.attributes.placeholder
-import org.jetbrains.compose.web.css.px
+import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.*
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.compose.web.css.AlignItems
-import org.jetbrains.compose.web.css.DisplayStyle
-import org.jetbrains.compose.web.css.FlexDirection
+import kotlin.js.Date
 
+val LoginGridStyle = CssStyle {
+    base { Modifier.fillMaxWidth().display(DisplayStyle.Grid).gridTemplateColumns { size(1.fr) }.gap(1.5.cssRem) }
+    Breakpoint.MD { Modifier.gridTemplateColumns { size(1.fr); size(1.fr) } }
+}
 
-@Serializable
-data class GenericApiResponse(
-    val statusCode: Int,
-    val headers: String,
-    val body: JsonObject? = null,
-    val requestBody: JsonObject? = null
-)
+/** Where to go after a successful sign-in: the `next` parameter, or the person's dashboard. */
+private fun destination(next: String?, username: String): String =
+    next?.takeIf { it.startsWith("/") && !it.startsWith("//") } ?: "/dashboard?username=${encodeURIComponent(username)}"
 
 @NoLiveLiterals
 @Page("loginpage")
 @Composable
 fun Loginpage() {
-    
+    val ctx = rememberPageContext()
+    val scope = rememberCoroutineScope()
+    val palette = ColorMode.current.toSitePalette()
+    val next = ctx.route.params["next"]
+
     var name by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var loadedPackages by remember { mutableStateOf<List<String>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
-    var packagesListed by remember {mutableStateOf<List<String>>(emptyList())}
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var useLocalAccount by remember { mutableStateOf(false) }
 
-    val scope = rememberCoroutineScope()
-    val ctx = rememberPageContext()
+    // "Scan to sign in"
+    var device by remember { mutableStateOf<DeviceStart?>(null) }
+    var deviceFallback by remember { mutableStateOf(false) }
+    var deviceMessage by remember { mutableStateOf<String?>(null) }
+    var pollJob by remember { mutableStateOf<Job?>(null) }
 
-    Div(
-        attrs = Modifier
-            .fillMaxSize()
-            .padding(24.px)
-            .display(DisplayStyle.Flex)
-            .flexDirection(FlexDirection.Column)
-            .alignItems(AlignItems.Center)
-            .toAttrs()
-    ) {
-        H1 {
-            Text("Login Page")
+    LaunchedEffect(Unit) {
+        AuthClient.currentUser()?.let { ctx.router.navigateTo(destination(next, it)); return@LaunchedEffect }
+    }
+
+    fun finish(result: SignIn) {
+        when (result) {
+            is SignIn.Success -> ctx.router.navigateTo(destination(next, result.session.username))
+            is SignIn.Failure -> error = result.message
         }
-        Div() {
-            Input(
-                type = InputType.Text,
-                attrs = Modifier
-                    .width(250.px)
-                    .padding(8.px)
-                    .toAttrs {
-                        placeholder("Username")
-                        value(name)
-                        onInput { event ->
-                            name = event.value
+    }
+
+    fun startDeviceFlow() {
+        pollJob?.cancel()
+        deviceMessage = null
+        pollJob = scope.launch {
+            val started = AuthClient.startDeviceSignIn()
+            if (started == null) {
+                deviceFallback = true
+                return@launch
+            }
+            device = started
+            val deadline = Date.now() + started.expiresIn * 1000.0
+            while (isActive && Date.now() < deadline) {
+                AuthClient.waitInterval(started.interval)
+                when (val poll = AuthClient.pollDeviceSignIn(started.deviceCode)) {
+                    is DevicePoll.Pending -> continue
+                    is DevicePoll.Done -> {
+                        when (val outcome = poll.result) {
+                            is SignIn.Success -> ctx.router.navigateTo(destination(next, outcome.session.username))
+                            is SignIn.Failure -> deviceMessage = outcome.message
                         }
+                        return@launch
                     }
-            )
+                }
+            }
+            if (isActive) deviceMessage = "The code expired. Show a new one."
         }
+    }
 
-        Div() {
-            Input(
-                type = InputType.Password,
-                attrs = Modifier
-                    .width(250.px)
-                    .padding(8.px)
-                    .toAttrs {
-                        placeholder("Password")
-                        value(password)
-                        onInput { event ->
-                            password = event.value
-                        }
-                    }
-            )
-        }
+    LaunchedEffect(Unit) { startDeviceFlow() }
+    DisposableEffect(Unit) { onDispose { pollJob?.cancel() } }
 
+    PageLayout("Sign in") {
+        PageHeading("Sign in", "Use your Amie account to upload and manage packages.")
 
-        Div() {
-            Button(
-                attrs = Modifier.toAttrs {
-                    onClick {
-                        println("Login button clicked.")
-                        println("Username entered: $name")
-                        println("Password length: ${password.length}")
-                        println("Redirecting to OAuthPage (/oauthpage) with credentials...")
-                        /*
-                        if (name.isNotEmpty() && password.isNotEmpty()) {
-                            scope.launch {
-                                val requestBody = Json.encodeToString(
-                                    mapOf(
-                                        "username" to name,
-                                        "password" to password
-                                    )
-                                )
-
-                                try {
-                                    val responseBytes = window.api.post(
-                                        apiPath = "login",
-                                        body = requestBody.encodeToByteArray()
-                                    )
-                                    println(responseBytes.decodeToString())
-                                    ctx.router.navigateTo("/dashboard?username=$name") //broken as hell!
-
-                                    val response = Json.decodeFromString<GenericApiResponse>(responseBytes.decodeToString())
-                                    println(response)
-                                    println("Username: ${response.requestBody?.get("username")?.jsonPrimitive?.contentOrNull ?: "name not found"}")
-                                    println("Password: ${response.requestBody?.get("password")?.jsonPrimitive?.contentOrNull ?: "name not found"}")
-
-                                    if (response.statusCode == 200) {
-                                        val token = response.body?.get("token")?.jsonPrimitive?.contentOrNull ?: "No Auth Token"
-                                        val user = response.requestBody?.get("username")?.jsonPrimitive?.contentOrNull ?: "name not found"
-
-                                        println("TOKEN: $token")
-                                        if (token != null) {
-                                            window.localStorage.setItem("username", user)
-                                            window.localStorage.setItem("token", token)
-                                            for(i in 0 until window.localStorage.length) println("WINDOW ATTACHMENTS: ${window.localStorage.key(i)}")
-
-                                            ctx.router.navigateTo("/dashboard?username=$user")
-                                        } else {
-                                            println("Token missing in response")
-                                        }
-                                    } else {
-                                        println("Login failed with status: ${response.statusCode}")
-                                    }
-                                } catch (e: Exception) {
-                                    println("Error: ${e.message}")
-                                }
+        Div(LoginGridStyle.toAttrs()) {
+            // Credentials
+            Card {
+                H2(Modifier.fontSize(14.px).margin(top = 0.px, bottom = 1.2.cssRem).toAttrs()) {
+                    Text(if (useLocalAccount) "Local account" else "Username and password")
+                }
+                Div(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).gap(1.cssRem).toAttrs()) {
+                    Div { FieldLabel("Username"); TextField(name, { name = it }, "Username", onEnter = {}) }
+                    Div {
+                        FieldLabel("Password")
+                        TextField(password, { password = it }, "Password", InputType.Password, onEnter = {
+                            if (!busy) scope.launch {
+                                busy = true; error = null
+                                finish(if (useLocalAccount) AuthClient.signInLocal(name, password) else AuthClient.signInWithPassword(name, password))
+                                busy = false
                             }
-                        } else {
-                            println("Please enter both username and password")
+                        })
+                    }
+                    StatusBanner(error, BannerKind.ERROR)
+                    PrimaryButton(if (busy) "Signing in…" else "Sign in", enabled = !busy) {
+                        scope.launch {
+                            busy = true; error = null
+                            finish(if (useLocalAccount) AuthClient.signInLocal(name, password) else AuthClient.signInWithPassword(name, password))
+                            busy = false
                         }
-                        */
-                        ctx.router.navigateTo("/oauthpage?username=$name&password=$password")
                     }
                 }
-            ) {
-                Text("Login")
-            }
-        }
 
-        Div() {
-            Button(
-                attrs = Modifier.toAttrs {
-                    onClick {
-//                        window.location.href = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/registrations" +
-//                                "?client_id=amie" +
-//                                "&response_type=code" +
-//                                "&scope=openid" +
-//                                "&redirect_uri=http://192.168.1.114:8081/oauthpage"
-                        window.location.href = "/oauthregister"
+                Hr(Modifier.margin(topBottom = 1.2.cssRem).border(0.px, LineStyle.None, palette.border).borderTop(1.px, LineStyle.Solid, palette.border).toAttrs())
+
+                if (!useLocalAccount) {
+                    Div(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).gap(0.9.cssRem).alignItems(AlignItems.FlexStart).toAttrs()) {
+                        LinkButton("Sign in with browser (SSO)", AmieConfig.authUrl(), primary = false)
+                        LinkButton("Create account", AmieConfig.authUrl(register = true), primary = false)
+                        Div(Modifier.display(DisplayStyle.Flex).gap(1.cssRem).flexWrap(FlexWrap.Wrap).fontSize(10.px).toAttrs()) {
+                            A(AmieConfig.authUrl(scope = "openid", extra = "&kc_action=UPDATE_PASSWORD")) { Text("Forgot password?") }
+                            A("#", attrs = { onClick { it.preventDefault(); useLocalAccount = true; error = null } }) { Text("Use a local account instead") }
+                        }
+                    }
+                } else {
+                    Div(Modifier.display(DisplayStyle.Flex).gap(1.cssRem).flexWrap(FlexWrap.Wrap).fontSize(10.px).toAttrs()) {
+                        Link("/register", "Create a local account")
+                        A("#", attrs = { onClick { it.preventDefault(); useLocalAccount = false; error = null } }) { Text("Back to single sign-on") }
                     }
                 }
-            )
-            {
-                Text("Register with Keycloak SSO")
             }
-        }
 
-        Div() {
-            Button(
-                attrs = Modifier.toAttrs {
-                    onClick {
-                        window.location.href = "http://192.168.1.114:8080/realms/master/protocol/openid-connect/auth" +
-                                "?client_id=amie" +
-                                "&response_type=code" +
-                                "&scope=openid" +
-                                "&redirect_uri=http://192.168.1.114:8081/oauthpage" +
-                                "&kc_action=reset_password"
+            // QR
+            Card(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).alignItems(AlignItems.Center).gap(0.8.cssRem)) {
+                Mascot(variant = 1, size = 110)
+                H2(Modifier.fontSize(13.px).margin(0.px).toAttrs()) { Text("Sign in with your phone") }
+                val current = device
+                when {
+                    current != null -> {
+                        QrCode(current.verificationUriComplete ?: current.verificationUri)
+                        MutedText("Scan the code, sign in on your phone, and this page continues by itself.")
+                        Div(Modifier.fontSize(10.px).lineHeight(1.9).textAlign(com.varabyte.kobweb.compose.css.TextAlign.Center).toAttrs()) {
+                            Text("Or open ")
+                            A(current.verificationUri, attrs = { attr("target", "_blank") }) { Text(current.verificationUri.removePrefix("https://").removePrefix("http://")) }
+                            Text(" and enter ")
+                            Span(Modifier.fontWeight(FontWeight.Bold).fontFamily("monospace").toAttrs()) { Text(current.userCode) }
+                        }
+                        StatusBanner(deviceMessage, BannerKind.ERROR)
+                        if (deviceMessage != null) GhostButton("Show a new code") { startDeviceFlow() }
                     }
-                }
-            )
-            {
-                Text("Forgot Password?")
-            }
-        }
-
-        Div() {
-
-            Button(
-                attrs = Modifier.toAttrs {
-                    onClick {
-                        ctx.router.navigateTo("/register")
+                    deviceFallback -> {
+                        QrCode(AmieConfig.authUrl())
+                        MutedText("Scan to open the sign-in page on your phone.")
                     }
+                    else -> MutedText("Preparing a code…")
                 }
-            )
-            {
-                Text("Local Register")
             }
         }
-
     }
 }

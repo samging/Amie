@@ -5,14 +5,18 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
-import org.mockito.InjectMocks
 import org.mockito.Mock
+import org.mockito.Mockito.lenient
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
@@ -21,13 +25,14 @@ import org.mockito.junit.jupiter.MockitoExtension
 import org.springframework.web.multipart.MultipartFile
 import software.amazon.awssdk.core.ResponseBytes
 import software.amazon.awssdk.core.ResponseInputStream
-import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.core.pagination.sync.SdkIterable
+import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.CommonPrefix
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
 import software.amazon.awssdk.services.s3.model.GetObjectResponse
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse
 import software.amazon.awssdk.services.s3.model.ListObjectsRequest
 import software.amazon.awssdk.services.s3.model.ListObjectsResponse
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
@@ -37,379 +42,424 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse
 import software.amazon.awssdk.services.s3.model.S3Exception
 import software.amazon.awssdk.services.s3.model.S3Object
 import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable
-import kotlin.test.assertNotNull
 
+/**
+ * Unit tests for [S3Service] against a mocked [S3Client]. Each test follows arrange / act / assert and
+ * checks both what the service returns and what it asked S3 for.
+ */
 @ExtendWith(MockitoExtension::class)
 class S3ServiceTest {
-    //AAA: arrange, act, assert
-    private val s3Client: S3Client = mock(S3Client::class.java)
-    private val service = S3Service(s3Client, ObjectMapper(), "test-bucket")
+    @Mock
+    private lateinit var s3Client: S3Client
 
     @Mock
     private lateinit var file: MultipartFile
 
+    private lateinit var service: S3Service
+
+    @BeforeEach
+    fun setUp() {
+        service = S3Service(s3Client, ObjectMapper(), BUCKET)
+    }
+
+    private fun stubPut(eTag: String) {
+        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
+            .thenReturn(PutObjectResponse.builder().eTag(eTag).build())
+    }
+
+    private fun capturedPut(): Pair<PutObjectRequest, RequestBody> {
+        val request = ArgumentCaptor.forClass(PutObjectRequest::class.java)
+        val body = ArgumentCaptor.forClass(RequestBody::class.java)
+        verify(s3Client).putObject(request.capture(), body.capture())
+        return request.value to body.value
+    }
+
+    private fun RequestBody.bytes(): ByteArray = contentStreamProvider().newStream().readBytes()
+
+    private fun notFound(): S3Exception = S3Exception.builder().statusCode(404).message("Not Found").build() as S3Exception
+
+    /** A paginator whose `contents()` yields the given objects and whose pages are the given pages. */
+    private fun stubPaginator(objects: List<S3Object> = emptyList(), pages: List<ListObjectsV2Response> = emptyList()) {
+        val paginator = mock(ListObjectsV2Iterable::class.java)
+        @Suppress("UNCHECKED_CAST")
+        val contents = mock(SdkIterable::class.java) as SdkIterable<S3Object>
+        lenient().`when`(contents.iterator()).thenAnswer { objects.toMutableList().iterator() }
+        lenient().`when`(paginator.contents()).thenReturn(contents)
+        lenient().`when`(paginator.iterator()).thenAnswer { pages.toMutableList().iterator() }
+        `when`(s3Client.listObjectsV2Paginator(any(ListObjectsV2Request::class.java))).thenReturn(paginator)
+    }
+
+    // ---- downloads -------------------------------------------------------------------------------------
+
     @Test
-    fun `downloadAmie_checks_if_application_is_being_downloaded`() {
-        runTest {
-            val keyName = "test-file.txt"
-            val bucketName = "test-bucket"
+    fun `downloadAmie streams the requested object from the requested bucket`() = runTest {
+        @Suppress("UNCHECKED_CAST")
+        val stream = mock(ResponseInputStream::class.java) as ResponseInputStream<GetObjectResponse>
+        `when`(s3Client.getObject(any(GetObjectRequest::class.java))).thenReturn(stream)
 
-            val mockResponseStream = mock(ResponseInputStream::class.java) as ResponseInputStream<GetObjectResponse>
+        val result = service.downloadAmie("test-file.txt", "other-bucket")
 
-            `when`(s3Client.getObject(any(GetObjectRequest::class.java)))
-                .thenReturn(mockResponseStream)
+        assertSame(stream, result)
+        val request = ArgumentCaptor.forClass(GetObjectRequest::class.java)
+        verify(s3Client).getObject(request.capture())
+        assertEquals("other-bucket", request.value.bucket())
+        assertEquals("test-file.txt", request.value.key())
+    }
 
-            val awaitedResp = service.downloadAmie(keyName, bucketName)
+    @Test
+    fun `listBucketObjects returns the keys from the S3 response`() = runTest {
+        `when`(s3Client.listObjects(any(ListObjectsRequest::class.java))).thenReturn(
+            ListObjectsResponse.builder()
+                .contents(S3Object.builder().key("uploads/sam/a.txt").build(), S3Object.builder().key("uploads/sam/b.txt").build())
+                .build()
+        )
 
-            assertNotNull(awaitedResp)
-            assertEquals(mockResponseStream, awaitedResp)
+        val keys = service.listBucketObjects()
 
-            verify(s3Client).getObject(any(GetObjectRequest::class.java))
+        assertEquals(listOf("uploads/sam/a.txt", "uploads/sam/b.txt"), keys)
+        val request = ArgumentCaptor.forClass(ListObjectsRequest::class.java)
+        verify(s3Client).listObjects(request.capture())
+        assertEquals(BUCKET, request.value.bucket())
+    }
+
+    // ---- uploads ---------------------------------------------------------------------------------------
+
+    @Test
+    fun `uploadFile stores the multipart under its original name`() = runTest {
+        `when`(file.originalFilename).thenReturn("test.txt")
+        `when`(file.inputStream).thenReturn("hello".byteInputStream())
+        `when`(file.size).thenReturn(5L)
+        stubPut("\"1234567890abcdef\"")
+
+        val result = service.uploadFile(file)
+
+        assertEquals("File uploaded successfully. ETag: \"1234567890abcdef\"", result)
+        val (request, body) = capturedPut()
+        assertEquals(BUCKET, request.bucket())
+        assertEquals("test.txt", request.key())
+        assertEquals("test", request.metadata()["myVal"])
+        assertArrayEquals("hello".toByteArray(), body.bytes())
+    }
+
+    @Test
+    fun `uploadFile wraps S3 failures in a RuntimeException`() {
+        `when`(file.originalFilename).thenReturn("test.txt")
+        `when`(file.inputStream).thenReturn("hello".byteInputStream())
+        `when`(file.size).thenReturn(5L)
+        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
+            .thenThrow(RuntimeException("AWS Service Error"))
+
+        val exception = assertThrows(RuntimeException::class.java) { runBlocking { service.uploadFile(file) } }
+
+        assertEquals("S3 Upload Failed: AWS Service Error", exception.message)
+    }
+
+    @Test
+    fun `uploadFileData stores bytes at the user upload key`() = runTest {
+        stubPut("raw-etag")
+
+        val result = service.uploadFileData("sam", "notes.txt", "hello".toByteArray())
+
+        assertEquals("File uploaded successfully. ETag: raw-etag", result)
+        val (request, body) = capturedPut()
+        assertEquals(BUCKET, request.bucket())
+        assertEquals("uploads/sam/notes.txt", request.key())
+        assertArrayEquals("hello".toByteArray(), body.bytes())
+    }
+
+    @Test
+    fun `uploadFileData rejects a blank username before calling S3`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { service.uploadFileData("", "notes.txt", byteArrayOf()) }
         }
+
+        verify(s3Client, never()).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
     }
 
     @Test
-    fun `uploadFileData_stores_bytes_at_the_user_upload_key`() {
-        runTest {
-            `when`(
-                s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
-            ).thenReturn(PutObjectResponse.builder().eTag("raw-etag").build())
-
-            val result = service.uploadFileData("sam", "notes.txt", "hello".toByteArray())
-
-            val requestCaptor = ArgumentCaptor.forClass(PutObjectRequest::class.java)
-            verify(s3Client).putObject(requestCaptor.capture(), any(RequestBody::class.java))
-            assertEquals("test-bucket", requestCaptor.value.bucket())
-            assertEquals("uploads/sam/notes.txt", requestCaptor.value.key())
-            assertEquals("File uploaded successfully. ETag: raw-etag", result)
+    fun `uploadFileData rejects a blank file name before calling S3`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { service.uploadFileData("sam", " ", byteArrayOf()) }
         }
+
+        verify(s3Client, never()).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
     }
 
     @Test
-    fun `uploadFileData_rejects_a_blank_username_before_calling_S3`() {
-        runTest {
-            assertThrows(IllegalArgumentException::class.java) {
-                runBlocking { service.uploadFileData("", "notes.txt", byteArrayOf()) }
-            }
+    fun `sendEdit replaces the object after S3 confirms it exists`() = runTest {
+        `when`(file.contentType).thenReturn("text/plain")
+        `when`(file.size).thenReturn(5L)
+        `when`(file.inputStream).thenReturn("hello".byteInputStream())
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenReturn(HeadObjectResponse.builder().build())
+        stubPut("edit-etag")
 
-            verify(s3Client, never()).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
+        val result = service.sendEdit("sam", "notes.txt", file)
+
+        assertEquals("File updated successfully. ETag: edit-etag", result)
+        val head = ArgumentCaptor.forClass(HeadObjectRequest::class.java)
+        verify(s3Client).headObject(head.capture())
+        assertEquals("uploads/sam/notes.txt", head.value.key())
+        val (request, _) = capturedPut()
+        assertEquals("uploads/sam/notes.txt", request.key())
+        assertEquals("text/plain", request.contentType())
+    }
+
+    @Test
+    fun `sendEdit without a username edits below the uploads root`() = runTest {
+        `when`(file.size).thenReturn(5L)
+        `when`(file.inputStream).thenReturn("hello".byteInputStream())
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenReturn(HeadObjectResponse.builder().build())
+        stubPut("root-etag")
+
+        service.sendEdit("", "notes.txt", file)
+
+        val (request, _) = capturedPut()
+        assertEquals("uploads/notes.txt", request.key())
+    }
+
+    @Test
+    fun `sendEdit fails when the object does not exist`() {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenThrow(notFound())
+
+        val exception = assertThrows(RuntimeException::class.java) {
+            runBlocking { service.sendEdit("sam", "missing.txt", file) }
         }
+
+        assertEquals("S3 update failed for uploads/sam/missing.txt", exception.message)
+        verify(s3Client, never()).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
     }
 
     @Test
-    fun `listBucketObjects_returns_keys_from_the_S3_response`() {
-        runTest {
-            `when`(s3Client.listObjects(any(ListObjectsRequest::class.java))).thenReturn(
-                ListObjectsResponse.builder()
-                    .contents(
-                        S3Object.builder().key("uploads/sam/a.txt").build(),
-                        S3Object.builder().key("uploads/sam/b.txt").build()
-                    )
-                    .build()
-            )
+    fun `writeError logs the message as markdown under the user's folder`() = runTest {
+        service.writeError("sam", "test-error", "test-message")
 
-            val keys = service.listBucketObjects()
-
-            assertEquals(listOf("uploads/sam/a.txt", "uploads/sam/b.txt"), keys)
-        }
-    }
-
-
-    @Test
-    fun `fetchEndpoints_converts_endpoint_JSON_to_a_name_map`() {
-        runTest {
-            val responseBytes = ResponseBytes.fromByteArray(
-                GetObjectResponse.builder().build(),
-                """[{"retailName":"Arduino Uno","descriptiveName":"Development board"}]""".toByteArray()
-            )
-            `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java))).thenReturn(responseBytes)
-
-            val endpoints = service.fetchEndpoints()
-
-            assertEquals(mapOf("Arduino Uno" to "Development board"), endpoints)
-        }
+        val (request, body) = capturedPut()
+        assertEquals("uploads/sam/errors.md", request.key())
+        assertEquals("text/markdown; charset=utf-8", request.contentType())
+        assertEquals("[test-error]: test-message", String(body.bytes()))
     }
 
     @Test
-    fun `sendEdit_replaces_the_requested_object_after_S3_confirms_it_exists`() {
-        runTest {
-            val file = mock(MultipartFile::class.java)
-            `when`(file.contentType).thenReturn("text/plain")
-            `when`(file.size).thenReturn(5)
-            `when`(file.inputStream).thenReturn("hello".byteInputStream())
-            `when`(
-                s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
-            ).thenReturn(PutObjectResponse.builder().eTag("edit-etag").build())
+    fun `writeError swallows S3 failures`() = runTest {
+        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
+            .thenThrow(RuntimeException("down"))
 
-            val result = service.sendEdit("sam", "notes.txt", file)
+        service.writeError("sam", "e", "m")
+    }
 
-            val requestCaptor = ArgumentCaptor.forClass(PutObjectRequest::class.java)
-            verify(s3Client).putObject(requestCaptor.capture(), any(RequestBody::class.java))
-            assertEquals("uploads/sam/notes.txt", requestCaptor.value.key())
-            assertEquals("File updated successfully. ETag: edit-etag", result)
-        }
+    // ---- endpoints -------------------------------------------------------------------------------------
+
+    @Test
+    fun `fetchEndpoints converts an endpoint array to a name map`() = runTest {
+        val json = """[{"retailName":"Arduino Uno","descriptiveName":"Development board"}]"""
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), json.toByteArray()))
+
+        val endpoints = service.fetchEndpoints()
+
+        assertEquals(mapOf("Arduino Uno" to "Development board"), endpoints)
+        val request = ArgumentCaptor.forClass(GetObjectRequest::class.java)
+        verify(s3Client).getObjectAsBytes(request.capture())
+        assertEquals("repositoryInformations", request.value.key())
     }
 
     @Test
-    fun `uploadFile_testing_if_file_is_uploaded_successfully`() {
-        runTest {
-            val dummyMultipart = mock(MultipartFile::class.java)
-            val fileName = "test.txt"
-            val expectedETag = "\"1234567890abcdef\""
+    fun `fetchEndpoints accepts an object of name to description`() = runTest {
+        val json = """{"Arduino Uno":"Board","Arduino Nano":"Small board"}"""
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), json.toByteArray()))
 
-            `when`(dummyMultipart.originalFilename).thenReturn(fileName)
-            `when`(dummyMultipart.inputStream).thenReturn("hello".byteInputStream())
-            `when`(dummyMultipart.size).thenReturn(5L)
-
-            val fakeResponse = PutObjectResponse.builder().eTag(expectedETag).build()
-            `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))).thenReturn(fakeResponse)
-            val result = service.uploadFile(dummyMultipart)
-            assertEquals("File uploaded successfully. ETag: $expectedETag", result)
-        }
+        assertEquals(mapOf("Arduino Uno" to "Board", "Arduino Nano" to "Small board"), service.fetchEndpoints())
     }
 
     @Test
-    fun `uploadFile should throw RuntimeException when S3 upload fails`() {
-        runTest {
-            `when`(file.originalFilename).thenReturn("test.txt")
-            `when`(file.inputStream).thenReturn("hello".byteInputStream())
-            `when`(file.size).thenReturn(4L)
+    fun `fetchEndpoints returns an empty map when S3 fails`() = runTest {
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java))).thenThrow(RuntimeException("down"))
 
-            `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
-                .thenThrow(RuntimeException("AWS Service Error"))
-
-            val exception = assertThrows(RuntimeException::class.java) {
-                runBlocking { service.uploadFile(file) }
-            }
-            assertTrue(exception.message!!.contains("S3 Upload Failed: AWS Service Error"))
-        }
+        assertTrue(service.fetchEndpoints().isEmpty())
     }
 
     @Test
-    fun `writeError should log to S3`() = runTest {
-        val username = "sam"
-        val error = "test-error"
-        val message = "test-message"
-
-        service.writeError(username, error, message)
-
-        verify(s3Client)
-            .putObject(any(PutObjectRequest::class.java),
-                any(RequestBody::class.java)
-            )
-    }
-
-    @Test
-    fun `postEndpoints should upload to S3 consumer and target device packages`() = runTest {
+    fun `postEndpoints uploads the endpoint list as JSON`() = runTest {
         val expectedJson = """[{"retailName":"Arduino Uno","descriptiveName":"Arduino uno more descriptive"},{"retailName":"Arduino Uno2","descriptiveName":"Arduino uno more descriptive"},{"retailName":"Arduino Uno3","descriptiveName":"Arduino uno more descriptive"}]"""
-            .toByteArray(Charsets.UTF_8)
-
-        val requestCaptor = ArgumentCaptor.forClass(PutObjectRequest::class.java)
-        val bodyCaptor = ArgumentCaptor.forClass(RequestBody::class.java)
 
         service.postEndpoints()
 
-        verify(s3Client).putObject(requestCaptor.capture(), bodyCaptor.capture())
-        assertEquals("repositoryInformations", requestCaptor.value.key())
-        assertEquals("application/json", requestCaptor.value.contentType())
-
-        val actualBytes = bodyCaptor.value.contentStreamProvider().newStream().readBytes()
-        assertArrayEquals(expectedJson, actualBytes)
+        val (request, body) = capturedPut()
+        assertEquals("repositoryInformations", request.key())
+        assertEquals("application/json", request.contentType())
+        assertArrayEquals(expectedJson.toByteArray(), body.bytes())
     }
 
-    @Test
-    fun `queryFiles should fetch metadata for specific file`() = runTest {
-        val fakeHeaders = software.amazon.awssdk.services.s3.model.HeadObjectResponse.builder().contentLength(1024L).build()
-        `when`(
-            s3Client.headObject(any(HeadObjectRequest::class.java
-            ))).thenReturn(fakeHeaders)
-        val result = service.queryFiles("test.txt")
-        assertEquals(true, result is Map<*, *>)
-    }
+    // ---- queries ---------------------------------------------------------------------------------------
 
     @Test
-    fun `queryFiles should return null on 404 Not Found`() = runTest {
-        val notFoundPage = S3Exception.builder()
-            .statusCode(404).message("not found").build() as S3Exception
-        `when`(
-            s3Client.headObject(any(HeadObjectRequest::class.java
-            ))).thenThrow(notFoundPage)
-
-        val result = service.queryFiles("missing.txt")
-
-        assertEquals(null, result)
-    }
-
-    @Test
-    fun `createUserDashboard should return early when username is blank`() = runTest {
-        service.createUserDashboard("   ")
-        verify(s3Client, never()).headObject(any<HeadObjectRequest>())
-        verify(s3Client, never()).putObject(any<PutObjectRequest>(), any<RequestBody>())
-    }
-
-    @Test
-    fun `createUserDashboard should skip creation when dashboard already exists`() = runTest {
-        val username = "john"
-        `when`(
-            s3Client.headObject(any(HeadObjectRequest::class.java
-            ))).thenReturn(null)
-
-        service.createUserDashboard(username)
-        verify(s3Client).headObject(any<HeadObjectRequest>())
-        verify(s3Client, never()).putObject(any<PutObjectRequest>(), any<RequestBody>())
-    }
-
-    @Test
-    fun `createUserDashboard should create dashboard when headObject returns 404`() = runTest {
-        // ARRANGE
-        val username = "john_doe"
-        val expectedKey = "uploads/john_doe/README.md"
-
-        // Mock headObject to throw 404 S3Exception
-        val notFoundException = S3Exception.builder()
-            .statusCode(404)
-            .message("Not Found")
-            .build() as S3Exception
-
+    fun `queryFiles looks up one file by name`() = runTest {
         `when`(s3Client.headObject(any(HeadObjectRequest::class.java)))
-            .thenThrow(notFoundException)
+            .thenReturn(HeadObjectResponse.builder().contentLength(1024L).build())
 
-        val requestCaptor = ArgumentCaptor.forClass(PutObjectRequest::class.java)
+        val result = service.queryFiles("test.txt") as Map<*, *>
 
-        // ACT
-        service.createUserDashboard(username)
-
-        // ASSERT
-        verify(s3Client).headObject(any(HeadObjectRequest::class.java))
-        verify(s3Client).putObject(requestCaptor.capture(), any(RequestBody::class.java))
-
-        val capturedRequest = requestCaptor.value
-        assertEquals(expectedKey, capturedRequest.key())
-        assertEquals("text/markdown; charset=utf-8", capturedRequest.contentType())
+        assertEquals("test.txt", result["name"])
+        assertEquals("uploads/test.txt", result["path"])
+        assertEquals("file", result["type"])
+        assertEquals(1024L, result["size"])
+        assertEquals("s3://$BUCKET/uploads/test.txt", result["download_url"])
     }
 
     @Test
-    fun `createUserDashboard should catch exception when S3 upload fails`() = runTest {
-        val username = "john_doe"
+    fun `queryFiles searches by extension when the query starts with a star`() = runTest {
+        stubPaginator(
+            objects = listOf(
+                S3Object.builder().key("uploads/sam/amie.jar").size(10L).build(),
+                S3Object.builder().key("uploads/sam/notes.txt").size(5L).build(),
+                S3Object.builder().key("uploads/tom/tool.JAR").size(7L).build()
+            )
+        )
 
-        val notFoundException = S3Exception.builder().statusCode(404).build() as S3Exception
-        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenThrow(notFoundException)
+        val result = service.queryFiles("*jar") as List<*>
 
-        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
-            .thenThrow(RuntimeException("AWS Network Error"))
-
-        service.createUserDashboard(username)
-
-        verify(s3Client).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
+        assertEquals(listOf("uploads/sam/amie.jar", "uploads/tom/tool.JAR"), result.map { (it as Map<*, *>)["path"] })
+        val request = ArgumentCaptor.forClass(ListObjectsV2Request::class.java)
+        verify(s3Client).listObjectsV2Paginator(request.capture())
+        assertEquals("uploads/", request.value.prefix())
     }
 
     @Test
-    fun `listFiles should map commonPrefixes as dir and contents as file`() = runTest {
-        val dummyFolder = CommonPrefix.builder().prefix("uploads/documents/").build()
-        val dummyFile = S3Object.builder()
-            .key("uploads/photo.png")
-            .size(2048L)
-            .eTag("\"etag-123\"")
-            .build()
+    fun `queryFiles with a bare star returns nothing without calling S3`() = runTest {
+        val result = service.queryFiles("*") as List<*>
 
-        val fakePage = ListObjectsV2Response.builder()
-            .commonPrefixes(dummyFolder)
-            .contents(dummyFile)
-            .build()
-
-        val paginator = mock(ListObjectsV2Iterable::class.java)
-        `when`(paginator.iterator()).thenReturn(mutableListOf(fakePage).iterator())
-        `when`(s3Client.listObjectsV2Paginator(any(ListObjectsV2Request::class.java))).thenReturn(paginator)
-
-        val requestCaptor = ArgumentCaptor.forClass(ListObjectsV2Request::class.java)
-
-        // --- ACT ---
-        val result = service.listFiles()
-
-        // --- ASSERT ---
-        // Verify total mapped items count
-        assertEquals(2, result.size)
-
-        // Verify request configuration
-        verify(s3Client).listObjectsV2Paginator(requestCaptor.capture())
-        val capturedRequest = requestCaptor.value
-        assertEquals("uploads/", capturedRequest.prefix())
-        assertEquals("/", capturedRequest.delimiter())
-    }
-
-    @Test
-    fun `listFiles should return empty list on exception`() = runTest {
-        `when`(s3Client.listObjectsV2Paginator(any(ListObjectsV2Request::class.java)))
-            .thenThrow(RuntimeException("S3 connection timeout"))
-
-        val result = service.listFiles()
-
-        assertTrue(result.isEmpty())
-    }
-
-    @Test
-    fun `listUserPackages should return empty list and skip S3 when username is blank`() = runTest {
-        // ACT
-        val result = service.listUserPackages("   ")
-
-        // ASSERT
         assertTrue(result.isEmpty())
         verify(s3Client, never()).listObjectsV2Paginator(any(ListObjectsV2Request::class.java))
     }
 
     @Test
-    fun `listUserPackages should fetch user files and filter out md files`() = runTest {
-        // --- ARRANGE ---
-        val username = "john_doe"
+    fun `queryFiles returns null on 404`() = runTest {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenThrow(notFound())
 
-        // 1. Create fake S3Objects (1 zip file, 1 markdown file that should be filtered)
-        val zipFile = S3Object.builder()
-            .key("uploads/john_doe/package.zip")
-            .size(1024L)
-            .eTag("\"etag-zip\"")
-            .build()
-
-        val mdFile = S3Object.builder()
-            .key("uploads/john_doe/README.MD") // uppercase extension to test ignoreCase = true
-            .size(512L)
-            .eTag("\"etag-md\"")
-            .build()
-
-        // 2. Stub paginator's contents() method
-        // `.contents()` returns a SdkIterable that delegates to iterator()
-        val paginator = mock(ListObjectsV2Iterable::class.java)
-        @Suppress("UNCHECKED_CAST")
-        val mockContentsIterable = mock(SdkIterable::class.java) as SdkIterable<S3Object>
-        `when`(mockContentsIterable.iterator()).thenReturn(mutableListOf(zipFile, mdFile).iterator())
-        `when`(paginator.contents()).thenReturn(mockContentsIterable)
-
-        `when`(s3Client.listObjectsV2Paginator(any(ListObjectsV2Request::class.java))).thenReturn(paginator)
-
-        val requestCaptor = ArgumentCaptor.forClass(ListObjectsV2Request::class.java)
-
-        // --- ACT ---
-        val result = service.listUserPackages(username)
-
-        // --- ASSERT ---
-        // Verify .md file was filtered out (only 1 file remains)
-        assertEquals(1, result.size)
-
-        // Verify request parameters
-        verify(s3Client).listObjectsV2Paginator(requestCaptor.capture())
-        val capturedRequest = requestCaptor.value
-        assertEquals("uploads/john_doe/", capturedRequest.prefix())
+        assertNull(service.queryFiles("missing.txt"))
     }
 
     @Test
-    fun `listUserPackages should return empty list on exception`() = runTest {
-        // --- ARRANGE ---
+    fun `queryFiles returns null on other S3 errors`() = runTest {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java)))
+            .thenThrow(S3Exception.builder().statusCode(500).message("boom").build() as S3Exception)
+
+        assertNull(service.queryFiles("broken.txt"))
+    }
+
+    // ---- dashboards ------------------------------------------------------------------------------------
+
+    @Test
+    fun `createUserDashboard returns early when the username is blank`() = runTest {
+        service.createUserDashboard("   ")
+
+        verify(s3Client, never()).headObject(any(HeadObjectRequest::class.java))
+        verify(s3Client, never()).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
+    }
+
+    @Test
+    fun `createUserDashboard skips creation when the dashboard exists`() = runTest {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenReturn(HeadObjectResponse.builder().build())
+
+        service.createUserDashboard("john")
+
+        verify(s3Client).headObject(any(HeadObjectRequest::class.java))
+        verify(s3Client, never()).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
+    }
+
+    @Test
+    fun `createUserDashboard creates the README when S3 answers 404`() = runTest {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenThrow(notFound())
+
+        service.createUserDashboard("john_doe")
+
+        val (request, body) = capturedPut()
+        assertEquals("uploads/john_doe/README.md", request.key())
+        assertEquals("text/markdown; charset=utf-8", request.contentType())
+        assertEquals("# Dashboard for john_doe", String(body.bytes()))
+    }
+
+    @Test
+    fun `createUserDashboard swallows an upload failure`() = runTest {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenThrow(notFound())
+        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
+            .thenThrow(RuntimeException("AWS Network Error"))
+
+        service.createUserDashboard("john_doe")
+
+        verify(s3Client).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
+    }
+
+    // ---- listings --------------------------------------------------------------------------------------
+
+    @Test
+    fun `listFiles maps common prefixes to dirs and contents to files`() = runTest {
+        val page = ListObjectsV2Response.builder()
+            .commonPrefixes(CommonPrefix.builder().prefix("uploads/documents/").build())
+            .contents(S3Object.builder().key("uploads/photo.png").size(2048L).eTag("\"etag-123\"").build())
+            .build()
+        stubPaginator(pages = listOf(page))
+
+        val result = service.listFiles()
+
+        assertEquals(2, result.size)
+        assertEquals(S3ItemDto("documents", "uploads/documents/", "s3://$BUCKET/uploads/documents/", null, "dir", null), result[0])
+        assertEquals(S3ItemDto("photo.png", "uploads/photo.png", "s3://$BUCKET/uploads/photo.png", "\"etag-123\"", "file", 2048L), result[1])
+        val request = ArgumentCaptor.forClass(ListObjectsV2Request::class.java)
+        verify(s3Client).listObjectsV2Paginator(request.capture())
+        assertEquals("uploads/", request.value.prefix())
+        assertEquals("/", request.value.delimiter())
+    }
+
+    @Test
+    fun `listFiles returns an empty list on exception`() = runTest {
+        `when`(s3Client.listObjectsV2Paginator(any(ListObjectsV2Request::class.java)))
+            .thenThrow(RuntimeException("S3 connection timeout"))
+
+        assertTrue(service.listFiles().isEmpty())
+    }
+
+    @Test
+    fun `listUserPackages skips S3 when the username is blank`() = runTest {
+        assertTrue(service.listUserPackages("   ").isEmpty())
+
+        verify(s3Client, never()).listObjectsV2Paginator(any(ListObjectsV2Request::class.java))
+    }
+
+    @Test
+    fun `listUserPackages lists the user's files and drops markdown`() = runTest {
+        stubPaginator(
+            objects = listOf(
+                S3Object.builder().key("uploads/john_doe/package.zip").size(1024L).eTag("\"etag-zip\"").build(),
+                S3Object.builder().key("uploads/john_doe/README.MD").size(512L).eTag("\"etag-md\"").build()
+            )
+        )
+
+        val result = service.listUserPackages("john_doe")
+
+        assertEquals(1, result.size)
+        assertEquals("package.zip", result[0].name)
+        assertEquals(1024L, result[0].size)
+        val request = ArgumentCaptor.forClass(ListObjectsV2Request::class.java)
+        verify(s3Client).listObjectsV2Paginator(request.capture())
+        assertEquals("uploads/john_doe/", request.value.prefix())
+    }
+
+    @Test
+    fun `listUserPackages returns an empty list on exception`() = runTest {
         `when`(s3Client.listObjectsV2Paginator(any(ListObjectsV2Request::class.java)))
             .thenThrow(RuntimeException("AWS Service Outage"))
 
-        // --- ACT ---
-        val result = service.listUserPackages("john_doe")
+        assertTrue(service.listUserPackages("john_doe").isEmpty())
+    }
 
-        // --- ASSERT ---
-        assertTrue(result.isEmpty())
+    @Test
+    fun `the service is constructed with the configured bucket`() {
+        assertNotNull(service)
+    }
+
+    companion object {
+        private const val BUCKET = "test-bucket"
     }
 }

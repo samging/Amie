@@ -6,6 +6,7 @@ import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.Prof
 import org.example.amiepackagerepository.shared.transactionalMiddleware.entities.UserActivity
 import org.example.amiepackagerepository.shared.transactionalMiddleware.repository.UserActivityRepository
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
+import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.keycloak.KeycloakTokenVerifier
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.repository.RestUserRepository
 import org.slf4j.LoggerFactory
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
@@ -23,7 +24,8 @@ import javax.crypto.SecretKey
 @Service
 class UserService(
     private val restUserRepository: RestUserRepository,
-    private val userActivityRepository: UserActivityRepository
+    private val userActivityRepository: UserActivityRepository,
+    private val keycloakTokenVerifier: KeycloakTokenVerifier
 ) {
     private val passwordEncoder = BCryptPasswordEncoder()
     private val log = LoggerFactory.getLogger(UserService::class.java)
@@ -148,12 +150,21 @@ class UserService(
     }
 
     /**
-     * Validates a JWT token and returns its claims.
+     * Validates a bearer token and returns its claims.
+     *
+     * Two kinds of token are accepted: the HS512 tokens this service issues from `/login`, and access
+     * tokens issued by the Keycloak realm (what the website's `oauthpage` and the desktop app hold after
+     * signing in). For a Keycloak token the subject is the Keycloak username and a `users` row is created
+     * on first sight so profiles and uploads work without a separate backend registration.
      *
      * @param token The JWT token string to validate.
      * @return The extracted [Claims] if the token is valid, or null if invalid/expired.
      */
     fun validateToken(token: String): Claims? {
+        keycloakTokenVerifier.verify(token)?.let { claims ->
+            ensureUser(claims.subject)
+            return claims
+        }
         try {
             return Jwts.parser()
                 .verifyWith(secretKey)
@@ -163,6 +174,15 @@ class UserService(
         } catch (e: Exception) {
             log.warn("Token is invalid: {}", e.message)
             return null
+        }
+    }
+
+    /** Creates the `users` row for an account that exists only in Keycloak. */
+    fun ensureUser(username: String) {
+        if (username.isBlank()) return
+        if (!(restUserRepository.existsByUsername(username) ?: false)) {
+            restUserRepository.save(RestUserEntity(username = username, password = ""))
+            log.info("Created backend user '{}' for a Keycloak account", username)
         }
     }
 

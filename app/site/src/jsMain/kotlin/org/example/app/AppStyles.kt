@@ -21,26 +21,43 @@ import org.jetbrains.compose.web.css.*
 
 @InitSilk
 fun initSiteStyles(ctx: InitSilkContext) {
-    // This site does not need scrolling itself, but this is a good demonstration for how you might enable this in your
-    // own site. Note that we only enable smooth scrolling unless the user has requested reduced motion, which is
-    // considered a best practice.
     ctx.stylesheet.registerStyle("html") {
         cssRule(CSSMediaQuery.MediaFeature("prefers-reduced-motion", StylePropertyValue("no-preference"))) {
             Modifier.scrollBehavior(ScrollBehavior.Smooth)
         }
     }
 
+    // One pixel font for the whole site; small sizes and a tall line height keep it readable
     ctx.stylesheet.registerStyleBase("body") {
         Modifier
-            .fontFamily(
-                "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "Oxygen", "Ubuntu",
-                "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", "sans-serif"
-            )
-            .fontSize(18.px)
-            .lineHeight(1.5)
+            .fontFamily("Press Start 2P", "monospace")
+            .fontSize(12.px)
+            .lineHeight(1.9)
+            // The site is always dark; the animated backdrop sits on this base color
+            .backgroundColor(com.varabyte.kobweb.compose.ui.graphics.Color.rgb(0x0A0A0A))
+            .color(com.varabyte.kobweb.compose.ui.graphics.Color.rgb(0xFFFFFF))
     }
 
-    // Silk dividers only extend 90% by default; we want full width dividers in our site
+    // Form controls do not inherit the page font by default
+    listOf("input", "textarea", "button", "select").forEach { tag ->
+        ctx.stylesheet.registerStyleBase(tag) { Modifier.fontFamily("Press Start 2P", "monospace") }
+    }
+    ctx.stylesheet.registerStyleBase("h1") { Modifier.fontSize(24.px).lineHeight(1.45).fontWeight(400).margin(topBottom = 0.5.cssRem) }
+    ctx.stylesheet.registerStyleBase("h2") { Modifier.fontSize(16.px).lineHeight(1.5).fontWeight(400) }
+    ctx.stylesheet.registerStyleBase("h3") { Modifier.fontSize(13.px).lineHeight(1.6).fontWeight(400) }
+    ctx.stylesheet.registerStyleBase("h4") { Modifier.fontSize(12.px).lineHeight(1.6).fontWeight(400) }
+    ctx.stylesheet.registerStyleBase("b") { Modifier.fontWeight(400).color(com.varabyte.kobweb.compose.ui.graphics.Color.rgb(0xFFFFFF)) }
+    ctx.stylesheet.registerStyleBase("strong") { Modifier.fontWeight(400).color(com.varabyte.kobweb.compose.ui.graphics.Color.rgb(0xFFFFFF)) }
+
+    // Plain anchors follow the brand color instead of the browser's default blue
+    ctx.stylesheet.registerStyleBase("a") {
+        Modifier.color(com.varabyte.kobweb.compose.ui.graphics.Color.rgb(0xFFFFFF))
+            .textDecorationLine(com.varabyte.kobweb.compose.css.TextDecorationLine.Underline)
+    }
+    ctx.stylesheet.registerStyleBase("a:hover") {
+        Modifier.color(com.varabyte.kobweb.compose.ui.graphics.Color.rgb(0xD9D9D9))
+    }
+
     ctx.theme.modifyStyleBase(HorizontalDividerStyle) {
         Modifier.fillMaxWidth()
     }
@@ -48,16 +65,17 @@ fun initSiteStyles(ctx: InitSilkContext) {
 
 val HeadlineTextStyle = CssStyle.base {
     Modifier
-        .fontSize(3.cssRem)
+        .fontSize(28.px)
         .textAlign(TextAlign.Start)
-        .lineHeight(1.2) //1.5x doesn't look as good on very large text
+        .lineHeight(1.5)
 }
 
 val SubheadlineTextStyle = CssStyle.base {
     Modifier
-        .fontSize(1.cssRem)
+        .fontSize(11.px)
+        .lineHeight(1.9)
         .textAlign(TextAlign.Start)
-        .color(colorMode.toPalette().color.toRgb().copyf(alpha = 0.8f))
+        .color(colorMode.toPalette().color.toRgb().copyf(alpha = 0.75f))
 }
 
 val CircleButtonVariant = ButtonStyle.addVariantBase {

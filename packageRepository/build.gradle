@@ -89,6 +89,14 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+// Skip test sources that are still being written, e.g.
+//   ./gradlew test -PexcludeTests='**/DriveControllerTest.kt,**/GithubControllerTest.kt' --tests '*JarInspectorTest'
+tasks.named('compileTestKotlin') {
+    if (project.hasProperty('excludeTests')) {
+        exclude(project.property('excludeTests').toString().split(',').collect { it.trim() })
+    }
+}
+
 tasks.named('asciidoctor') {
     inputs.dir snippetsDir
     dependsOn test

@@ -679,6 +679,40 @@ class GithubService {
         }
     }
 
+    /**
+     * Removes a file a user uploaded (`uploads/<user>/<language>/<name>`) from the repository: the file's sha is
+     * read first, as GitHub's contents API needs it to delete. A file that is not there is not an error.
+     */
+    fun deleteFile(username: String, progLanguage: String, fileName: String): Boolean {
+        logger.info("--- [SimpleService: deleteFile] START (user: {}, lang: {}, file: {}) ---", username, progLanguage, fileName)
+        val githubToken = System.getenv("GITHUB_TOKEN")?.trim()
+        val path = listOf("uploads", username.trim(), progLanguage.trim(), fileName.trim())
+            .joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+        val url = "$githubApiBase/$owner/$name/$urlSegment/$path"
+        val sha = fetchFileSha(url, githubToken) ?: run {
+            logger.info("GITHUB: nothing to delete at {}", path)
+            return false
+        }
+        try {
+            restClient.method(org.springframework.http.HttpMethod.DELETE)
+                .uri(url)
+                .header("Authorization", "Bearer ${githubToken ?: ""}")
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(mapOf("message" to "Remove $fileName via Amie Repository for $username", "sha" to sha))
+                .retrieve()
+                .toBodilessEntity()
+            logger.info("GITHUB: deleted {}", path)
+            return true
+        } catch (e: Exception) {
+            logger.error("CRITICAL: GitHub API Delete Error for user '{}': {}", username, e.message)
+            throw e
+        } finally {
+            logger.info("--- [SimpleService: deleteFile] END ---")
+        }
+    }
+
     fun uploadFileData(username: String, fileName: String, data: ByteArray) {
         logger.info("--- [SimpleService: uploadFileData] START (user: {}, file: {}) ---", username, fileName)
         val githubToken = System.getenv("GITHUB_TOKEN")?.trim()

@@ -3,10 +3,10 @@ package org.example.amiepackagerepository.website
 import com.google.api.services.drive.Drive
 import org.example.amiepackagerepository.shared.integration.github.dto.GithubContentResponseDto
 import org.example.amiepackagerepository.shared.integration.github.service.GithubService
+import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileUpdateDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.TransactionalStatusRepository
-import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -88,8 +88,7 @@ class UserController(
         logger.info("--- [POST /login] START ---")
         val username = loginRequest["username"] ?: "guest"
         val password = loginRequest["password"] ?: ""
-        logger.info("DEBUG: Login attempt for user: $loginRequest | username: $username | password: $password")
-        println("DEBUG: Login attempt for user: $username")
+        logger.info("Login attempt for user: {}", username)
 
         val token = userService.loginAsUser(username, password)
             ?: if (username.startsWith("guest-") && password == "") {
@@ -239,9 +238,23 @@ class UserController(
      * Retrieves the profile of a user.
      */
     @GetMapping("/profile")
-    fun getProfile(@RequestParam username: String): RestUserEntity {
+    fun getProfile(@RequestParam username: String): ProfileDto {
         logger.info("--- [GET /profile] START (user: {}) ---", username)
-        return userService.getProfile(username) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found")
+        val user = userService.getProfile(username) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found")
+        return ProfileDto.of(user)
+    }
+
+    /**
+     * Who the bearer token belongs to, for clients that signed in with Keycloak and want to know how this
+     * backend names them. Creates the backend user on first call.
+     */
+    @GetMapping("/me")
+    fun me(@RequestHeader("Authorization") authHeader: String): ProfileDto {
+        val claims = userService.validateToken(authHeader.removePrefix("Bearer "))
+            ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized or expired token")
+        userService.ensureUser(claims.subject)
+        val user = userService.getProfile(claims.subject) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found")
+        return ProfileDto.of(user)
     }
 
     /**

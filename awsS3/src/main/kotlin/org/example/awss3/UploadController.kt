@@ -1,6 +1,7 @@
 package org.example.awss3
 
-import org.apache.coyote.Response
+import org.example.awss3.jar.JarInspector
+import org.example.awss3.jar.JarService
 import org.springframework.core.io.InputStreamResource
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -8,20 +9,32 @@ import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
-import software.amazon.awssdk.core.ResponseBytes
-import software.amazon.awssdk.core.ResponseInputStream
-import software.amazon.awssdk.services.s3.S3Client
-import software.amazon.awssdk.services.s3.model.GetObjectRequest
-import software.amazon.awssdk.services.s3.model.GetObjectResponse
 
 @RestController
 @RequestMapping("/api/aws")
-class UploadController(private val s3Service: S3Service) {
+class UploadController(
+    private val s3Service: S3Service,
+    private val jarInspector: JarInspector,
+    private val jarService: JarService
+) {
+
+    /**
+     * Rejects a `.jar` upload that is not a valid Amie package; other file types pass through untouched.
+     * Returns the 400 answer to send, or null when the upload may proceed.
+     */
+    private fun rejectInvalidJar(fileName: String?, bytes: () -> ByteArray): ResponseEntity<String>? {
+        if (!JarInspector.isJarName(fileName)) return null
+        val inspection = jarInspector.inspect(fileName, bytes())
+        if (inspection.valid) return null
+        return ResponseEntity.badRequest().body(inspection.problems.joinToString("; "))
+    }
 
     @PostMapping("/upload")
     suspend fun uploadFile(@RequestParam("file") file: MultipartFile): ResponseEntity<String> {
+        rejectInvalidJar(file.originalFilename) { file.bytes }?.let { return it }
         return try {
             val result = s3Service.uploadFile(file)
+            jarService.invalidate()
             ResponseEntity.ok(result)
         } catch (e: Exception) {
             val message = e.message ?: "Unknown error occurred during upload"
@@ -36,8 +49,11 @@ class UploadController(private val s3Service: S3Service) {
         @RequestParam fileName: String,
         @RequestBody data: ByteArray
     ): ResponseEntity<String> {
+        rejectInvalidJar(fileName) { data }?.let { return it }
         return try {
-            ResponseEntity.ok(s3Service.uploadFileData(username, fileName, data))
+            val result = s3Service.uploadFileData(username, fileName, data)
+            jarService.invalidate()
+            ResponseEntity.ok(result)
         } catch (e: Exception) {
             val message = e.message ?: "Unable to upload raw file data"
             ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -51,8 +67,11 @@ class UploadController(private val s3Service: S3Service) {
         @RequestParam fileName: String,
         @RequestParam("file") file: MultipartFile
     ): ResponseEntity<String> {
+        rejectInvalidJar(fileName) { file.bytes }?.let { return it }
         return try {
-            ResponseEntity.ok(s3Service.sendEdit(username, fileName, file))
+            val result = s3Service.sendEdit(username, fileName, file)
+            jarService.invalidate()
+            ResponseEntity.ok(result)
         } catch (e: Exception) {
             val message = e.message ?: "Unable to update the S3 object"
             ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -112,9 +131,10 @@ class UploadController(private val s3Service: S3Service) {
     }
 
     @GetMapping("/downloadAmie")
-    suspend fun downloadAmie(): ResponseEntity<InputStreamResource> {
-        val keyName = "test.txt"
-        val bucketName = "setup-demo-sams"
+    suspend fun downloadAmie(
+        @RequestParam(defaultValue = "test.txt") keyName: String,
+        @RequestParam(defaultValue = "setup-demo-sams") bucketName: String
+    ): ResponseEntity<InputStreamResource> {
         val s3Stream = s3Service.downloadAmie(keyName, bucketName)
         val contentLength = s3Stream.response().contentLength()
 

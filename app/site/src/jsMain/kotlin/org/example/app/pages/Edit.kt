@@ -1,180 +1,130 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
-import androidx.compose.runtime.NoLiveLiterals
-import com.varabyte.kobweb.compose.foundation.layout.Box
-import com.varabyte.kobweb.compose.ui.Alignment
 import com.varabyte.kobweb.compose.ui.Modifier
-import com.varabyte.kobweb.compose.ui.graphics.Colors
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
-import com.varabyte.kobweb.silk.components.overlay.Overlay
-import com.varabyte.kobweb.silk.components.overlay.OverlayVars
-import kotlinx.browser.window
-import kotlinx.coroutines.delay
+import com.varabyte.kobweb.silk.theme.colors.ColorMode
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.await
+import org.example.app.auth.AuthClient
+import org.example.app.components.ClientCache
+import org.example.app.components.Http
+import org.example.app.components.JarPrecheck
+import org.example.app.components.layouts.PageLayout
+import org.example.app.components.widgets.*
+import org.example.app.config.AmieConfig
+import org.example.app.config.encodeURIComponent
+import org.example.app.toSitePalette
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.*
+import org.w3c.dom.HTMLInputElement
 import org.w3c.files.File
-import org.w3c.files.get
 import org.w3c.xhr.FormData
 
+/** Replaces one of the signed-in person's package files with a new version. */
 @NoLiveLiterals
 @Page
 @Composable
 fun EditPage() {
     val ctx = rememberPageContext()
-    val packageName = ctx.route.params["package"] ?: ""
-    val username = ctx.route.params["username"] ?: ""
-    
-    var fileName by remember { mutableStateOf<String?>(null) }
-    var selectedFile by remember { mutableStateOf<File?>(null) }
-    var isDragging by remember { mutableStateOf(false) }
-    var uploadStatus by remember { mutableStateOf<String?>(null) }
-    var showPopup by remember { mutableStateOf(false) }
-
     val scope = rememberCoroutineScope()
+    val palette = ColorMode.current.toSitePalette()
+    val packagePath = ctx.route.params["package"] ?: ""
+    val username = ctx.route.params["username"] ?: ""
+    val fileName = packagePath.substringAfterLast('/')
 
-    if (showPopup) {
-        LaunchedEffect(showPopup) {
-            delay(5000)
-            showPopup = false
+    var selectedFile by remember { mutableStateOf<File?>(null) }
+    var dragging by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var noticeKind by remember { mutableStateOf(BannerKind.INFO) }
+
+    LaunchedEffect(Unit) {
+        val user = AuthClient.currentUser()
+        if (user == null || user != username) ctx.router.navigateTo("/loginpage?next=${encodeURIComponent(window().location.pathname + window().location.search)}")
+    }
+
+    fun choose(file: File?) {
+        selectedFile = file
+        notice = null
+        if (file != null && file.name.endsWith(".jar", true)) {
+            scope.launch {
+                val check = runCatching { JarPrecheck.check(file) }.getOrNull()
+                if (check != null && !check.ok) {
+                    notice = check.problems.joinToString(" ")
+                    noticeKind = BannerKind.ERROR
+                    selectedFile = null
+                }
+            }
         }
     }
 
-    Div(Modifier.padding(24.px).toAttrs()) {
-        H1 { Text("Update Package: $packageName") }
-        P { Text("Editing as user: $username") }
+    fun submit() {
+        val file = selectedFile ?: return
+        scope.launch {
+            busy = true
+            notice = "Uploading the new version…"
+            noticeKind = BannerKind.INFO
+            try {
+                val token = AuthClient.accessToken()
+                val form = FormData()
+                form.append("file", file)
+                form.append("filename", fileName)
+                form.append("username", username)
+                val result = Http.postBody(AmieConfig.backend("edit"), form, Http.bearer(token))
+                if (result.ok) {
+                    ClientCache.removePrefix("packages:")
+                    runCatching { Http.get(AmieConfig.api("repo-by-username?username=${encodeURIComponent(username)}&refresh=1")) }
+                    notice = "$fileName was updated."
+                    noticeKind = BannerKind.SUCCESS
+                    ctx.router.navigateTo("/dashboard?username=${encodeURIComponent(username)}")
+                } else {
+                    notice = if (result.status == 401 || result.status == 403) "Please sign in again to update packages." else "The update did not go through."
+                    noticeKind = BannerKind.ERROR
+                }
+            } catch (e: Throwable) {
+                notice = "The update did not go through."
+                noticeKind = BannerKind.ERROR
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    PageLayout("Replace $fileName") {
+        PageHeading("Replace $fileName", "The new file replaces the current version for everyone.")
 
         Div(
-            attrs = Modifier
-                .id("dropzone")
-                .fillMaxWidth()
-                .height(150.px)
-                .margin(top = 20.px)
-                .border(2.px, LineStyle.Dashed, if (isDragging) Colors.Blue else Colors.Gray)
-                .borderRadius(8.px)
-                .padding(20.px)
-                .display(DisplayStyle.Flex)
-                .alignItems(AlignItems.Center)
-                .justifyContent(JustifyContent.Center)
-                .toAttrs {
-                    onDragOver { evt ->
-                        evt.preventDefault()
-                        isDragging = true
-                    }
-                    onDragLeave { _ ->
-                        isDragging = false
-                    }
-                    onDrop { evt ->
-                        evt.preventDefault()
-                        isDragging = false
-
-                        val file = evt.dataTransfer?.files?.item(0) as? File
-                        if (file != null) {
-                            println("DEBUG: File dropped for edit: ${file.name} (Size: ${file.size})")
-                            selectedFile = file
-                            fileName = file.name
-                            showPopup = true
-                        }
-                    }
+            Modifier.fillMaxWidth().minHeight(8.cssRem).padding(1.5.cssRem).borderRadius(14.px)
+                .border(2.px, LineStyle.Dashed, if (dragging) palette.brand.primary else palette.border)
+                .backgroundColor(if (dragging) palette.infoBackground else palette.nearBackground)
+                .display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).alignItems(AlignItems.Center)
+                .justifyContent(JustifyContent.Center).gap(0.6.cssRem).toAttrs {
+                    onDragOver { it.preventDefault(); dragging = true }
+                    onDragLeave { dragging = false }
+                    onDrop { evt -> evt.preventDefault(); dragging = false; choose(evt.dataTransfer?.files?.item(0)) }
                 }
         ) {
-            if (fileName != null) {
-                P { Text("New file selected: $fileName") }
-            } else {
-                Text("Drop the new version of your file here")
+            Text(selectedFile?.let { "Selected: ${it.name} (${formatSize(it.size.toDouble())})" } ?: "Drop the new version here, or")
+            Label(forId = "edit-file", attrs = Modifier.cursor(com.varabyte.kobweb.compose.css.Cursor.Pointer).color(palette.brand.primary).toAttrs()) {
+                Text("choose a file")
             }
+            Input(InputType.File, attrs = Modifier.display(DisplayStyle.None).toAttrs {
+                id("edit-file")
+                onChange { evt -> choose((evt.target as HTMLInputElement).files?.item(0)) }
+            })
         }
 
-        if (showPopup && fileName != null) {
-            Overlay(
-                Modifier
-                    .setVariable(OverlayVars.BackgroundColor, Colors.Transparent)
-                    .onClick { showPopup = false }
-            ) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .margin(top = 20.px)
-                        .padding(12.px)
-                        .backgroundColor(Colors.LightGreen)
-                        .borderRadius(8.px)
-                        .boxShadow(0.px, 4.px, 12.px, color = Colors.Black.toRgb().copyf(alpha = 0.2f))
-                ) {
-                    Text("New version of $fileName ready for submission!")
-                }
-            }
-        }
+        StatusBanner(notice, noticeKind, Modifier.margin(top = 1.cssRem))
 
-        if (selectedFile != null) {
-            Button(
-                attrs = Modifier.margin(top = 20.px).toAttrs {
-                    onClick {
-                        scope.launch {
-                            println("--- [EditPage: Submit Update] START ---")
-                            uploadStatus = "Updating..."
-                            try {
-                                val formData = FormData()
-                                formData.append("file", selectedFile!!)
-                                formData.append("filename", packageName)
-                                formData.append("username", username)
-
-                                val options = js("{}")
-                                options["method"] = "POST"
-                                options["body"] = formData
-                                val headers = js("{}")
-                                val token = window.localStorage.getItem("auth_token")
-                                headers["Authorization"] = "Bearer $token"
-                                options["headers"] = headers
-
-                                println("DEBUG: Submitting update for '$packageName' as user '$username'")
-                                val response = window.fetch("http://192.168.1.114:8080/edit", options).await()
-                                println("DEBUG: Update response status: ${response.status}")
-                                
-                                if (response.ok) {
-                                    val result = response.text().await()
-                                    println("DEBUG: Update success result: $result")
-                                    uploadStatus = "Success: $result"
-                                    delay(2000)
-                                    ctx.router.navigateTo("/dashboard?username=$username")
-                                } else {
-                                    println("ERROR: Update failed: ${response.statusText}")
-                                    uploadStatus = "Error: ${response.statusText}"
-                                }
-                            } catch (e: Exception) {
-                                console.error("ERROR: Failed to submit update: ${e.message}")
-                                uploadStatus = "Failed: ${e.message}"
-                            } finally {
-                                println("--- [EditPage: Submit Update] END ---")
-                            }
-                        }
-                    }
-                }
-            ) {
-                Text("Submit Update")
-            }
-        }
-
-        if (uploadStatus != null) {
-            P(Modifier.margin(top = 10.px).toAttrs()) {
-                Text(uploadStatus!!)
-            }
-        }
-        
-        Button(
-            attrs = Modifier.margin(top = 10.px).toAttrs {
-                onClick {
-                    println("DEBUG: Cancelling edit, returning to dashboard")
-                    ctx.router.navigateTo("/dashboard?username=$username")
-                }
-            }
-        ) {
-            Text("Cancel")
+        Div(Modifier.display(DisplayStyle.Flex).gap(0.6.cssRem).margin(top = 1.5.cssRem).toAttrs()) {
+            PrimaryButton(if (busy) "Updating…" else "Update package", enabled = !busy && selectedFile != null) { submit() }
+            LinkButton("Cancel", "/dashboard?username=${encodeURIComponent(username)}", primary = false)
         }
     }
 }
+
+private fun window() = kotlinx.browser.window

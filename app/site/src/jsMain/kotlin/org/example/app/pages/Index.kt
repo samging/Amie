@@ -1,391 +1,174 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
-import androidx.compose.runtime.NoLiveLiterals
-import com.varabyte.kobweb.browser.api
 import com.varabyte.kobweb.compose.css.FontWeight
-import com.varabyte.kobweb.compose.css.AnimationIterationCount
-import com.varabyte.kobweb.compose.css.TextDecorationLine
-import com.varabyte.kobweb.compose.foundation.layout.Arrangement
-import com.varabyte.kobweb.compose.ui.Alignment
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
-import com.varabyte.kobweb.navigation.Route
 import com.varabyte.kobweb.silk.components.text.SpanText
-import com.varabyte.kobweb.silk.style.animation.Keyframes
-import com.varabyte.kobweb.silk.style.animation.toAnimation
-import kotlinx.browser.window
+import com.varabyte.kobweb.silk.style.toModifier
+import com.varabyte.kobweb.silk.theme.colors.ColorMode
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.await
-import org.jetbrains.compose.web.attributes.InputType
-import org.jetbrains.compose.web.attributes.placeholder
-import org.jetbrains.compose.web.attributes.value
+import org.example.app.HeadlineTextStyle
+import org.example.app.SubheadlineTextStyle
+import org.example.app.auth.AuthSession
+import org.example.app.components.ClientCache
+import org.example.app.components.Http
+import org.example.app.components.layouts.PageLayout
+import org.example.app.components.widgets.*
+import org.example.app.config.AmieConfig
+import org.example.app.config.encodeURIComponent
+import org.example.app.toSitePalette
 import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.*
 import kotlin.js.Json
-import io.ktor.http.Url
-import io.ktor.http.encodeURLParameter
-import io.ktor.http.encodeURLQueryComponent
 
-private val host = window.location.hostname
-private val DASHBOARD_URL = "http://$host:8080/dashboard"
-private val LIST_GITHUB_URL = "http://$host:8080/list-github"
-private val QUERY_URL = "http://$host:8080/query?query="
-
-private object ExplorerCache {
-    var packages: List<Json>? = null
-}
-
-private fun primaryActionButton() = Modifier
-    .padding(topBottom = 10.px, leftRight = 18.px)
-    .borderRadius(6.px)
-    .border(1.px, LineStyle.Solid, Color.white)
-    .backgroundColor(Color.white)
-    .color(Color.black)
-    .fontWeight(FontWeight.Bolder)
-
-private fun secondaryActionButton() = Modifier
-    .padding(topBottom = 8.px, leftRight = 14.px)
-    .borderRadius(6.px)
-    .border(1.px, LineStyle.Solid, Color.white)
-    .backgroundColor(Color.black)
-    .color(Color.white)
-    .fontWeight(FontWeight.Bolder)
-
-val SearchSpinAnimation = Keyframes {
-    from { Modifier.rotate(0.deg) }
-    to { Modifier.rotate(360.deg) }
+private fun parseItems(text: String): List<Json> {
+    if (text.isBlank()) return emptyList()
+    val json = JSON.parse<dynamic>(text)
+    return when {
+        js("Array.isArray(json)") as Boolean -> json.unsafeCast<Array<Json>>().toList()
+        json == null -> emptyList()
+        else -> listOf(json.unsafeCast<Json>())
+    }
 }
 
 @NoLiveLiterals
 @Page("/")
 @Composable
 fun IndexPage() {
-    var text by remember { mutableStateOf("") }
-    var loadedPackages by remember { mutableStateOf<List<Json>>(emptyList()) }
-    var loggedInUser by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
-    var isSearching by remember { mutableStateOf(false) }
-
-    val scope = rememberCoroutineScope()
     val ctx = rememberPageContext()
+    val scope = rememberCoroutineScope()
+    val palette = ColorMode.current.toSitePalette()
+    val username = remember { AuthSession.username }
 
-    LaunchedEffect(Unit) {
-        println("--- [IndexPage: LaunchedEffect] START ---")
-        isLoading = true
+    var query by remember { mutableStateOf("") }
+    var items by remember { mutableStateOf<List<Json>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
 
-        val token = window.localStorage.getItem("auth_token")
-        if (token != null) {
-            try {
-                println("DEBUG: Auth token found in localStorage, validating...")
-                val headers = js("{}")
-                headers["Authorization"] = "Bearer $token"
-                val options = js("{}")
-                options["headers"] = headers
-
-                val response = window.fetch(DASHBOARD_URL, options).await()
-                println("DEBUG: Dashboard auth check status: ${response.status}")
-                if (response.ok) {
-                    val text = response.text().await()
-                    loggedInUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
-                    println("DEBUG: Logged in user identified as: $loggedInUser")
-                } else if (response.status == 401.toShort()) {
-                    println("INFO: Auth token expired or invalid, clearing.")
-                    window.localStorage.removeItem("auth_token")
-                    loggedInUser = null
-                }
-            } catch (e: Exception) {
-                console.error("ERROR: Auth check failed in Index: ${e.message}")
-            }
-        }
-
+    suspend fun loadAll(refresh: Boolean) {
+        loading = true
+        error = null
         try {
-            if (ExplorerCache.packages != null) {
-                loadedPackages = ExplorerCache.packages!!
-                println("DEBUG: Loaded Explorer data from cache (${loadedPackages.size} items)")
-            } else {
-                println("DEBUG: Fetching package list from $LIST_GITHUB_URL")
-                val response = window.fetch(LIST_GITHUB_URL).await()
-                println("DEBUG: Package list fetch status: ${response.status}")
-                if (response.ok) {
-                    val json = response.json().await().unsafeCast<Array<Json>>()
-                    loadedPackages = json.toList()
-                    ExplorerCache.packages = loadedPackages
-                    println("DEBUG: Package list loaded successfully (${loadedPackages.size} items)")
-                }
+            val text = ClientCache.cached("packages:all", ClientCache.MINUTE, refresh) {
+                val result = Http.get(AmieConfig.api("list-github" + if (refresh) "?refresh=1" else ""))
+                if (!result.ok) throw IllegalStateException()
+                result.text
             }
-        } catch (e: Exception) {
-            console.error("ERROR: Connection failed in Index: ${e.message}")
+            items = parseItems(text)
+        } catch (e: Throwable) {
+            items = ClientCache.getStale("packages:all")?.let { parseItems(it) } ?: emptyList()
+            error = "The package list could not be loaded right now."
         } finally {
-            isLoading = false
-            println("--- [IndexPage: LaunchedEffect] END ---")
+            loading = false
         }
     }
 
-    Div(
-        attrs = Modifier
-            .padding(24.px)
-            .fillMaxWidth()
-            .minHeight(100.vh)
-            .backgroundColor(Color.black)
-            .color(Color.white)
-            .toAttrs()
-    ) {
-        Div(
-            Modifier
-                .margin(bottom = 24.px)
-                .display(DisplayStyle.Flex)
-                .justifyContent(JustifyContent.SpaceBetween)
-                .alignItems(AlignItems.Center)
-                .flexWrap(FlexWrap.Wrap)
-                .gap(16.px)
-                .toAttrs()
-        ) {
-            Img(src = "/svglogo.svg", attrs = Modifier.size(width = 310.px, height = 68.px).toAttrs())
-            val loggedInUsername = window.localStorage.getItem("username")
-            for (i in 0 until window.localStorage.length) {
-                println(window.localStorage.key(i))
+    suspend fun search() {
+        val q = query.trim()
+        if (q.isEmpty()) return loadAll(refresh = false)
+        loading = true
+        error = null
+        try {
+            val text = ClientCache.cached("packages:search:$q", ClientCache.MINUTE) {
+                val result = Http.get(AmieConfig.api("search-packages?query=${encodeURIComponent(q)}"))
+                if (!result.ok) throw IllegalStateException()
+                result.text
             }
-            if (loggedInUsername != null) {
-                SpanText(text = "Under Username: $loggedInUsername", modifier = Modifier.textDecorationLine(TextDecorationLine.Underline))
-            } else {
-                Text("Log in to upload packages")
-            }
+            items = parseItems(text)
+        } catch (e: Throwable) {
+            error = "The search could not be run right now."
+        } finally {
+            loading = false
+        }
+    }
 
-            Div(attrs =
-                Modifier
-                    .display(DisplayStyle.Flex).gap(4.px)
-                    .flexDirection(FlexDirection.Column)
-                    .toAttrs()
-            ) {
-                if (loggedInUser != null) {
-                    Button(attrs = secondaryActionButton().toAttrs {
-                        onClick {
-                            println("DEBUG: Navigating to dashboard for $loggedInUser")
-                            window.location.href = "/dashboard?username=$loggedInUser"
-                        }
-                    }) {
-                        Text("Logged in as $loggedInUser")
-                    }
-                } else {
-                    Button(attrs = secondaryActionButton().toAttrs {
-                        onClick {
-                            println("DEBUG: Navigating to login page")
-                            window.location.href = "/loginpage"
-                        }
-                    }) {
-                        Text("Login")
-                    }
-                }
+    LaunchedEffect(Unit) { loadAll(refresh = false) }
+
+    PageLayout("Packages") {
+        // Hero
+        Div(Modifier.fillMaxWidth().margin(bottom = 2.cssRem).display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap)
+            .alignItems(AlignItems.Center).justifyContent(JustifyContent.SpaceBetween).gap(1.5.cssRem).toAttrs()) {
+          Div(Modifier.maxWidth(44.cssRem).flexGrow(1).toAttrs()) {
+            H1(HeadlineTextStyle.toModifier().margin(0.px).toAttrs()) { Text("Packages for your boards") }
+            P(SubheadlineTextStyle.toModifier().margin(top = 0.8.cssRem, bottom = 1.4.cssRem).maxWidth(40.cssRem).toAttrs()) {
+                Text("Amie keeps firmware and tooling packages in one place: browse what others published, download ready-made jars, or upload your own.")
             }
+            Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.9.cssRem).toAttrs()) {
+                LinkButton("Download jars", "/downloads")
+                LinkButton("Read the docs", "/docs", primary = false)
+                if (username != null) LinkButton("Upload a package", "/navigateto?username=$username", primary = false)
+                else LinkButton("Sign in to upload", "/loginpage", primary = false)
+            }
+          }
+          Mascot(variant = 0, size = 200)
         }
 
-
-        Div(
-            Modifier
-                .margin(bottom = 28.px)
-                .display(DisplayStyle.Flex)
-                .alignItems(AlignItems.Center)
-                .flexWrap(FlexWrap.Wrap)
-                .gap(10.px)
-                .toAttrs()
-        ) {
-                Input(
-                type = InputType.Text,
-                attrs = Modifier
-                    .width(300.px)
-                    .padding(10.px)
-                    .borderRadius(4.px)
-                    .border(1.px, LineStyle.Solid, Color.white)
-                    .backgroundColor(Color.white)
-                    .color(Color.black)
-                    .toAttrs {
-                        placeholder("Search for package by extension (e.g. *py)")
-                        value(text)
-                        onInput { event ->
-                            text = event.value
-                        }
-                    }
-            )
-
-            Button(
-                attrs = primaryActionButton().toAttrs {
-                    onClick {
-                        scope.launch {
-                            println("--- [IndexPage: Search] START ---")
-                            println("DEBUG: Search query: '$text'")
-                            isLoading = true
-                            isSearching = true
-                            try {
-                                val encodedText = js("encodeURIComponent")(text) as String
-                                val searchUrl = "$QUERY_URL$encodedText"
-                                println("DEBUG: Fetching search results from: $searchUrl")
-                                val response = window.fetch(searchUrl).await()
-                                println("DEBUG: Search response status: ${response.status}")
-                                if (response.ok) {
-                                    val json = response.json().await()
-                                    if (js("Array.isArray(json)") as Boolean) {
-                                        loadedPackages = (json as Array<Json>).toList()
-                                    } else if (json != null) {
-                                        loadedPackages = listOf(json.unsafeCast<Json>())
-                                    } else {
-                                        loadedPackages = emptyList()
-                                    }
-                                    ExplorerCache.packages = loadedPackages
-                                    println("DEBUG: Search results updated (${loadedPackages.size} items)")
-                                }
-                            } catch (e: Exception) {
-                                console.error("ERROR: Search failed: ${e.message}")
-                            } finally {
-                                isLoading = false
-                                isSearching = false
-                                println("--- [IndexPage: Search] END ---")
-                            }
-                        }
-                    }
-                }
-            ) {
-                Span(
-                    attrs = Modifier
-                        .display(DisplayStyle.InlineBlock)
-                        .then(
-                            if (isSearching) {
-                                Modifier.animation(
-                                    SearchSpinAnimation.toAnimation(
-                                        duration = 700.ms,
-                                        iterationCount = AnimationIterationCount.Infinite
-                                    )
-                                )
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .toAttrs()
-                ) {
-                    Text("⌕")
-                }
-                Text(if (isSearching) " Searching" else " Search")
-            }
+        // Search
+        Div(Modifier.fillMaxWidth().display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.9.cssRem).alignItems(AlignItems.Center).margin(bottom = 2.cssRem).toAttrs()) {
+            TextField(query, { query = it }, placeholder = "Search, e.g. *jar", modifier = Modifier.width(22.cssRem), onEnter = { scope.launch { search() } })
+            PrimaryButton(if (loading) "Searching…" else "Search", enabled = !loading) { scope.launch { search() } }
+            GhostButton("Refresh", enabled = !loading) { query = ""; scope.launch { loadAll(refresh = true) } }
         }
 
-        if (isLoading) {
-            P { Text("Fetching data...") }
+        StatusBanner(error, BannerKind.ERROR, Modifier.margin(bottom = 1.cssRem))
+
+        if (loading && items.isEmpty()) {
+            EmptyState("Loading packages…")
         } else {
-            val authors = loadedPackages.filter { it["type"] == "dir" }
-            val binaries = loadedPackages.filter { it["type"] == "file" }
+            val authors = items.filter { it["type"] == "dir" }
+            val files = items.filter { it["type"] == "file" }
 
             if (authors.isNotEmpty()) {
-                Table(
-                    attrs = Modifier
-                        .fillMaxWidth()
-                        .margin(bottom = 40.px)
-                        .border(1.px, LineStyle.Solid, Color.lightgray)
-                        .borderRadius(8.px)
-                        .toAttrs()
-                ) {
-                    Thead {
-                        Tr {
-                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Author") }
-                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) { Text("Actions") }
-                        }
-                    }
-                    Tbody {
-                        for (item in authors) {
-                            val rawName = item["name"] as? String ?: "Unknown"
-                            Tr(attrs = Modifier.borderTop(1.px, LineStyle.Solid, Color.lightgray).toAttrs()) {
-                                Td(attrs = Modifier.padding(12.px).toAttrs()) {
-                                    B { Img(src = "usericon.svg", attrs = Modifier.size(40.px).toAttrs())
-                                        Text("$rawName") }
-                                    Text(" (Author)")
-                                }
-                                Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
-                                    Button(attrs = secondaryActionButton().toAttrs {
-                                        onClick {
-                                            println("DEBUG: Navigating to dashboard for author: $rawName")
-                                            window.location.href = "/dashboard?username=$rawName"
-                                        }
-                                    }) {
-                                        Text("View Author's Packages")
-                                    }
-                                }
+                H2(Modifier.fontSize(14.px).margin(top = 0.px, bottom = 0.8.cssRem).toAttrs()) { Text("Authors") }
+                Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.6.cssRem).margin(bottom = 2.cssRem).toAttrs()) {
+                    for (author in authors) {
+                        val name = author["name"] as? String ?: continue
+                        Card(Modifier.width(com.varabyte.kobweb.compose.css.Width.FitContent).minWidth(14.cssRem).display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.8.cssRem).padding(0.8.cssRem, 1.cssRem)) {
+                            Img("/usericon.svg", attrs = Modifier.size(2.2.cssRem).toAttrs())
+                            Div {
+                                Div(Modifier.fontWeight(FontWeight.SemiBold).toAttrs()) { Text(name) }
+                                A("/dashboard?username=${encodeURIComponent(name)}", attrs = Modifier.fontSize(10.px).color(palette.brand.primary).toAttrs()) { Text("View packages") }
                             }
                         }
                     }
                 }
             }
 
-            if (binaries.isNotEmpty()) {
-                Table(
-                    attrs = Modifier
-                        .fillMaxWidth()
-                        .border(1.px, LineStyle.Solid, Color.lightgray)
-                        .borderRadius(8.px)
-                        .toAttrs()
-                ) {
-                    Thead {
-                        Tr {
-                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Name") }
-                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "left") } }) { Text("Size") }
-                            Th(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) { Text("Actions") }
-                        }
-                    }
+            if (files.isNotEmpty()) {
+                H2(Modifier.fontSize(14.px).margin(top = 0.px, bottom = 0.8.cssRem).toAttrs()) { Text("Packages") }
+                Table(DataTableStyle.toModifier().toAttrs()) {
+                    Thead { Tr { Th { Text("Name") }; Th { Text("Author") }; Th { Text("Size") }; Th { Text("") } } }
                     Tbody {
-                        for (item in binaries) {
-                            val rawName = item["name"] as? String ?: "Unknown"
+                        for (item in files) {
+                            val name = item["name"] as? String ?: "Unknown"
                             val path = item["path"] as? String ?: ""
                             val owner = path.substringAfter("uploads/").substringBefore("/")
-
-                            val sizeInBytes = (item["size"] as? Number)?.toDouble() ?: 0.0
-                            val sizeDisplay = if (sizeInBytes > 0) {
-                                if (sizeInBytes > 1024 * 1024) {
-                                    "${(sizeInBytes / (1024.0 * 1024.0)).asDynamic().toFixed(2)} MB"
-                                } else {
-                                    "${(sizeInBytes / 1024.0).asDynamic().toFixed(2)} KB"
-                                }
-                            } else "-"
-
-                            Tr(attrs = Modifier.borderTop(1.px, LineStyle.Solid, Color.lightgray).toAttrs()) {
-                                Td(attrs = Modifier.padding(12.px).toAttrs()) {
-                                    when {
-                                        rawName.endsWith(".py") -> Img(src = "python.svg", attrs = Modifier.size(40.px).toAttrs())
-                                        rawName.endsWith(".json") -> Img(src = "json.svg", attrs = Modifier.size(40.px).toAttrs())
-                                        else ->  { Text("📄") }
-                                    }
-                                    Text("$rawName")
-                                }
-                                Td(attrs = Modifier.padding(12.px).toAttrs()) { Text(sizeDisplay) }
-                                Td(attrs = Modifier.padding(12.px).toAttrs { style { property("text-align", "center") } }) {
-                                    val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
-                                    
-                                    Button(
-                                        attrs = secondaryActionButton().margin(right = 5.px).toAttrs({
-                                            onClick {
-                                                println("PATH: $path")
-                                                val encodedPath = if (path.isNotEmpty()) path.encodeURLParameter() as String else ""
-                                                println("E path ${encodedPath}")
-
-                                                val encodedUrl = if (downloadUrl.isNotEmpty()) downloadUrl.encodeURLParameter() as String else ""
-                                                println("E url: ${encodedUrl}")
-
-                                                println("DEBUG: Navigating to View route for: ${encodedPath} + ${encodedUrl}")
-
-                                                val viewRoute = "/view?package=$encodedPath&username=$owner&from=aboutss&url=$encodedUrl"
-                                                window.location.href = viewRoute
-                                            }
-                                        })
-                                    ) { Text("View") }
-
-                                    if (downloadUrl.isNotEmpty()) {
-                                        A(href = downloadUrl, attrs = Modifier.margin(right = 5.px).toAttrs {
-                                            onClick { println("DEBUG: User clicking Download link for: $downloadUrl") }
-                                        }) {
-                                            Button(attrs = primaryActionButton().toAttrs()) {
-                                                Text("Download")
-                                            }
+                            val size = (item["size"] as? Number)?.toDouble() ?: 0.0
+                            val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
+                            Tr {
+                                Td {
+                                    Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.5.cssRem).toAttrs()) {
+                                        when {
+                                            name.endsWith(".py") -> Img("/python.svg", attrs = Modifier.size(1.4.cssRem).toAttrs())
+                                            name.endsWith(".json") -> Img("/json.svg", attrs = Modifier.size(1.4.cssRem).toAttrs())
+                                            name.endsWith(".jar") -> SpanText("☕")
+                                            else -> SpanText("📄")
                                         }
+                                        SpanText(name, Modifier.fontWeight(FontWeight.Medium))
+                                    }
+                                }
+                                Td { Text(owner.ifEmpty { "–" }) }
+                                Td { Text(formatSize(size)) }
+                                Td {
+                                    Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).toAttrs()) {
+                                        GhostButton("View") {
+                                            ctx.router.navigateTo("/view?package=${encodeURIComponent(path)}&username=${encodeURIComponent(owner)}&url=${encodeURIComponent(downloadUrl)}")
+                                        }
+                                        if (downloadUrl.isNotEmpty()) LinkButton("Download", downloadUrl, download = true)
                                     }
                                 }
                             }
@@ -394,20 +177,9 @@ fun IndexPage() {
                 }
             }
 
-            if (authors.isEmpty() && binaries.isEmpty()) {
-                P { Text("No items found.") }
+            if (authors.isEmpty() && files.isEmpty() && !loading) {
+                EmptyState(if (query.isBlank()) "No packages have been published yet." else "Nothing matches that search.")
             }
-        }
-
-        Button(
-            attrs = primaryActionButton().margin(top = 40.px).toAttrs {
-                onClick {
-                    println("DEBUG: Navigating to Upload page")
-                    window.location.href = "/navigateto"
-                }
-            }
-        ) {
-            Text("Go to Upload")
         }
     }
 }

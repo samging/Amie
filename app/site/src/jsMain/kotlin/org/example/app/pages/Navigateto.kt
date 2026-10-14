@@ -1,290 +1,183 @@
 package org.example.app.pages
 
 import androidx.compose.runtime.*
-import androidx.compose.runtime.NoLiveLiterals
-import com.varabyte.kobweb.compose.foundation.layout.Box
-import com.varabyte.kobweb.compose.ui.Alignment
+import com.varabyte.kobweb.compose.css.FontWeight
 import com.varabyte.kobweb.compose.ui.Modifier
-import com.varabyte.kobweb.compose.ui.graphics.Colors
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
-import com.varabyte.kobweb.silk.components.overlay.Overlay
-import com.varabyte.kobweb.silk.components.overlay.OverlayVars
-import kotlinx.browser.window
-import kotlinx.coroutines.delay
+import com.varabyte.kobweb.silk.theme.colors.ColorMode
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.await
+import org.example.app.auth.AuthClient
+import org.example.app.components.ClientCache
+import org.example.app.components.Http
+import org.example.app.components.JarPrecheck
+import org.example.app.components.JarPrecheckResult
+import org.example.app.components.layouts.PageLayout
+import org.example.app.components.widgets.*
+import org.example.app.config.AmieConfig
+import org.example.app.config.encodeURIComponent
+import org.example.app.toSitePalette
 import org.jetbrains.compose.web.attributes.InputType
-import org.jetbrains.compose.web.attributes.placeholder
-import org.jetbrains.compose.web.attributes.value
 import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.*
+import org.w3c.dom.HTMLInputElement
 import org.w3c.files.File
-import org.w3c.files.get
 import org.w3c.xhr.FormData
 
+/** Uploads a package jar: checked in the browser first, then by the backend for the run/close contract. */
 @NoLiveLiterals
 @Page
 @Composable
 fun Navigateto() {
-    var fileName by remember { mutableStateOf<String?>(null) }
-    var fileSize by remember {mutableStateOf(0.0)}
-    var fileSuffix by remember { mutableStateOf<String?>(null) }
-    var isDragging by remember { mutableStateOf(false) }
-    var packageName by remember { mutableStateOf("") }
-    var packageDescription by remember { mutableStateOf("") }
-    var progLanguage by remember { mutableStateOf("") }
-    var showPopup by remember { mutableStateOf(false) }
-    var selectedFile by remember { mutableStateOf<File?>(null) }
-    var uploadStatus by remember { mutableStateOf<String?>(null) }
-
-    
-    val scope = rememberCoroutineScope()
     val ctx = rememberPageContext()
-    val username = ctx.route.params["username"] ?: ""
-    var loggedInUser by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val palette = ColorMode.current.toSitePalette()
+
+    var user by remember { mutableStateOf<String?>(null) }
+    var checkedAuth by remember { mutableStateOf(false) }
+    var selectedFile by remember { mutableStateOf<File?>(null) }
+    var precheck by remember { mutableStateOf<JarPrecheckResult?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var dragging by remember { mutableStateOf(false) }
+    var uploading by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var noticeKind by remember { mutableStateOf(BannerKind.INFO) }
 
     LaunchedEffect(Unit) {
-        val token = window.localStorage.getItem("token")
-        println("DEBUG: Navigateto token: $token")
-        
-        if (token != null) {
-            try {
-                val headers = js("{}")
-                headers["Authorization"] = "Bearer $token"
-                val options = js("{}")
-                options["headers"] = headers
+        user = AuthClient.currentUser()
+        checkedAuth = true
+        if (user == null) ctx.router.navigateTo("/loginpage?next=${encodeURIComponent("/navigateto")}")
+    }
 
-                val response = window.fetch("http://192.168.1.114:8080/dashboard", options).await()
+    fun choose(file: File?) {
+        selectedFile = file
+        precheck = null
+        notice = null
+        if (file == null) return
+        checking = true
+        scope.launch {
+            precheck = runCatching { JarPrecheck.check(file) }.getOrElse { JarPrecheckResult(listOf("The file could not be read."), 0, 0, false) }
+            checking = false
+        }
+    }
 
-                if (response.ok) {
-                    val text = response.text().await()
-                    val extractedUser = text.substringAfter("dashboard, ").substringBefore(" (ID:")
-                    loggedInUser = extractedUser
-
-                    println("Dashboard check successful: $extractedUser")
-                    if (username.isBlank() && extractedUser.isNotEmpty()) {
-                        ctx.router.navigateTo("/navigateto?username=$extractedUser")
-                    }
-                } else {
-                    println("Dashboard check failed with status: ${response.status}")
-                    ctx.router.navigateTo("/loginpage")
-                }
-            } catch (e: Exception) {
-                println("Auth check failed in Navigateto: $e")
-                ctx.router.navigateTo("/loginpage")
+    suspend fun upload() {
+        val file = selectedFile ?: return
+        val owner = user ?: return
+        uploading = true
+        notice = "Uploading ${file.name}…"
+        noticeKind = BannerKind.INFO
+        try {
+            val token = AuthClient.accessToken()
+            if (token == null) {
+                notice = "Please sign in again before uploading."
+                noticeKind = BannerKind.ERROR
+                return
             }
-        } else {
-            println("No auth_token found, redirecting to login")
-            ctx.router.navigateTo("/loginpage")
+            val form = FormData()
+            form.append("file", file)
+            form.append("username", owner)
+            form.append("progLanguage", "jar")
+            val result = Http.postBody(AmieConfig.backend("upload"), form, Http.bearer(token))
+            when {
+                result.ok -> {
+                    ClientCache.removePrefix("packages:")
+                    ClientCache.remove("jars:list")
+                    // Let the site's server forget its copies too, so the new jar shows up at once
+                    runCatching { Http.get(AmieConfig.api("jars?refresh=1")) }
+                    runCatching { Http.get(AmieConfig.api("repo-by-username?username=${encodeURIComponent(owner)}&refresh=1")) }
+                    runCatching { Http.get(AmieConfig.api("list-github?refresh=1")) }
+                    notice = "${file.name} was uploaded."
+                    noticeKind = BannerKind.SUCCESS
+                    ctx.router.navigateTo("/dashboard?username=${encodeURIComponent(owner)}")
+                }
+                result.status == 400 -> {
+                    notice = "The jar was not accepted: ${result.text.ifBlank { "it does not look like an Amie package." }}"
+                    noticeKind = BannerKind.ERROR
+                }
+                result.status == 401 || result.status == 403 -> {
+                    notice = "Please sign in again before uploading."
+                    noticeKind = BannerKind.ERROR
+                }
+                else -> {
+                    notice = "The upload did not go through. Please try again."
+                    noticeKind = BannerKind.ERROR
+                }
+            }
+        } catch (e: Throwable) {
+            notice = "The upload did not go through. Please try again."
+            noticeKind = BannerKind.ERROR
+        } finally {
+            uploading = false
         }
     }
 
-    if (showPopup) {
-        LaunchedEffect(showPopup) {
-            delay(5000)
-            showPopup = false
+    PageLayout("Upload") {
+        PageHeading("Upload a package", user?.let { "Publishing as $it" })
+
+        Card(Modifier.margin(bottom = 1.cssRem)) {
+            Div(Modifier.fontWeight(FontWeight.SemiBold).margin(bottom = 0.4.cssRem).toAttrs()) { Text("What a package jar needs") }
+            P(Modifier.margin(0.px).toAttrs()) {
+                Text("A jar with at least one public class that has both ")
+                Code { Text("run(input: String): List<String>") }
+                Text(" and ")
+                Code { Text("close()") }
+                Text(". run handles one text input and returns the lines to show; close releases whatever run opened. Anything else is refused.")
+            }
         }
-    }
-    Div() {
-        Div(Modifier.padding(24.px).toAttrs()) {
-            H1 { Text("Upload your binary") }
-            P { Text("Uploading as user: $username") }
-        }
 
-        H3 { Text("Package Name: $packageName") }
-        Input(
-            type = InputType.Text,
-            attrs = Modifier
-                .width(250.px)
-                .padding(8.px)
-                .toAttrs {
-                    placeholder("Package name")
-                    value(packageName)
-
-                    onInput { evt ->
-                        packageName = evt.value
-                    }
-                }
-        )
-
-//        H3 { Text("Programming Language: ") }
-//        Input(
-//            type = InputType.Text,
-//            attrs = Modifier
-//                .width(250.px)
-//                .padding(8.px)
-//                .toAttrs {
-//                    placeholder("e.g. Kotlin, Python, etc.")
-//                    value(progLanguage)
-//                    onInput { evt ->
-//                        progLanguage = evt.value
-//                    }
-//                }
-//        )
-
-        H3 { Text("Package Description: ") }
-        TextArea (
-            attrs = Modifier
-                .width(250.px)
-                .height(250.px)
-                .padding(8.px)
-                .toAttrs {
-                    placeholder("Description for usage")
-                    value(packageDescription)
-                    onInput { evt ->
-                        packageDescription = evt.value
-                    }
-                }
-        )
-
+        // Drop zone
         Div(
-            attrs = Modifier
-                .id("dropzone")
-                .fillMaxWidth()
-                .height(150.px)
-                .margin(top = 20.px)
-                .border(2.px, LineStyle.Dashed, if (isDragging) Colors.Blue else Colors.Gray)
-                .borderRadius(8.px)
-                .padding(20.px)
-                .display(DisplayStyle.Flex)
-                .alignItems(AlignItems.Center)
-                .justifyContent(JustifyContent.Center)
-                .toAttrs {
-                    onDragOver { evt ->
-                        evt.preventDefault()
-                        isDragging = true
-                    }
-                    onDragLeave { _ ->
-                        isDragging = false
-                    }
+            Modifier.fillMaxWidth().minHeight(9.cssRem).padding(1.5.cssRem).borderRadius(14.px)
+                .border(2.px, LineStyle.Dashed, if (dragging) palette.brand.primary else palette.border)
+                .backgroundColor(if (dragging) palette.infoBackground else palette.nearBackground)
+                .display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).alignItems(AlignItems.Center)
+                .justifyContent(JustifyContent.Center).gap(0.6.cssRem).toAttrs {
+                    onDragOver { it.preventDefault(); dragging = true }
+                    onDragLeave { dragging = false }
                     onDrop { evt ->
                         evt.preventDefault()
-                        isDragging = false
-
-                        val file = evt.dataTransfer?.files?.item(0) as? File
-                        if (file != null) {
-                            selectedFile = file
-                            fileName = file.name
-                            fileSize = file.size.toDouble()
-                            fileSuffix = file.name.substringAfterLast(".")
-                            showPopup = true
-                        }
+                        dragging = false
+                        choose(evt.dataTransfer?.files?.item(0))
                     }
                 }
         ) {
-            if (fileName != null) {
-                P {
-                    Text("Selected file: $fileName")
-                }
+            Text(selectedFile?.let { "Selected: ${it.name} (${formatSize(it.size.toDouble())})" } ?: "Drop a .jar here, or")
+            Label(forId = "jar-file", attrs = Modifier.cursor(com.varabyte.kobweb.compose.css.Cursor.Pointer).color(palette.brand.primary).fontWeight(FontWeight.SemiBold).toAttrs()) {
+                Text(if (selectedFile == null) "choose a file" else "choose another file")
+            }
+            Input(InputType.File, attrs = Modifier.display(DisplayStyle.None).toAttrs {
+                id("jar-file")
+                attr("accept", ".jar,application/java-archive")
+                onChange { evt -> choose((evt.target as HTMLInputElement).files?.item(0)) }
+            })
+        }
+
+        // Precheck result
+        if (checking) {
+            StatusBanner("Checking the file…", BannerKind.INFO, Modifier.margin(top = 1.cssRem))
+        }
+        precheck?.let { result ->
+            if (result.ok) {
+                StatusBanner(
+                    "Looks like a jar: ${result.classCount} classes" + (if (result.hasManifest) ", with a manifest" else "") + ". The run/close check happens when you submit.",
+                    BannerKind.SUCCESS, Modifier.margin(top = 1.cssRem)
+                )
             } else {
-                Text("Drop your binary file here")
+                StatusBanner(result.problems.joinToString(" "), BannerKind.ERROR, Modifier.margin(top = 1.cssRem))
             }
         }
 
-        if (showPopup && fileName != null) {
-            Overlay(
-                Modifier
-                    .setVariable(OverlayVars.BackgroundColor, Colors.Transparent)
-                    .onClick { showPopup = false }
-            ) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .margin(top = 20.px)
-                        .padding(12.px)
-                        .backgroundColor(Colors.LightGreen)
-                        .borderRadius(8.px)
-                        .boxShadow(
-                            0.px,
-                            4.px,
-                            12.px,
-                            color = Colors.Black.toRgb().copyf(alpha = 0.2f)
-                        )
-                ) {
-                    Text("File $fileName prepared for submission!")
-                }
-            }
-        }
+        StatusBanner(notice, noticeKind, Modifier.margin(top = 1.cssRem))
 
-
-        if (selectedFile != null) {
-            Button(
-                attrs = Modifier.margin(top = 20.px).toAttrs {
-                    onClick {
-                        if (progLanguage.isBlank()) {
-                            val pattern = Regex("""\.([a-zA-Z0-9]+)$""")
-                            val currentFileName = fileName ?: ""
-                            val matchResult = pattern.find(currentFileName)
-
-                            progLanguage = if (matchResult != null) {
-                                matchResult.groupValues[1]
-                            } else {
-                                ""
-                            }
-                            println("PACKAGE NAME: $packageName")
-                            println("FILE NAME: $fileName")
-                            println("PROG LANG: $progLanguage")
-                            return@onClick
-                        }
-                        scope.launch {
-                            uploadStatus = "Uploading..."
-                            try {
-                                val targetUser = loggedInUser ?: username
-                                if (targetUser.isBlank()) {
-                                    uploadStatus = "Error: No user specified."
-                                    return@launch
-                                }
-
-                                println("[PROG-LANG]: $progLanguage")
-
-                                val formData = FormData()
-                                formData.append("file", selectedFile!!)
-                                formData.append("username", targetUser)
-                                formData.append("progLanguage", progLanguage)
-
-                                val options = js("{}")
-                                options["method"] = "POST"
-                                options["body"] = formData
-                                val headers = js("{}")
-                                val token = window.localStorage.getItem("token")
-                                headers["Authorization"] = "Bearer $token"
-                                options["headers"] = headers
-
-                                val response =
-                                    window.fetch("http://192.168.1.114:8080/upload", options).await()
-
-                                if (response.ok) {
-                                    val result = response.text().await()
-                                    uploadStatus = "Success: $result"
-                                    delay(2000)
-                                    ctx.router.navigateTo("/dashboard?username=$targetUser")
-                                } else {
-                                    uploadStatus = "Error: ${response.statusText}"
-                                }
-                            } catch (e: Exception) {
-                                uploadStatus = "Failed: ${e.message}"
-                            }
-                        }
-                    }
-                }
-            ) {
-                Text("Submit Package")
-            }
-
-            Div(attrs = Modifier.fontSize(12.px).margin(top = 10.px).toAttrs()) {
-                P { Text("File: $fileName") }
-                P { Text("Size: ${(fileSize / 1024).toInt()} KB") }
-                P { Text("Type: $fileSuffix") }
-            }
-        }
-
-        if (uploadStatus != null) {
-            P(Modifier.margin(top = 10.px).toAttrs()) {
-                Text(uploadStatus!!)
-            }
+        Div(Modifier.display(DisplayStyle.Flex).gap(0.6.cssRem).margin(top = 1.5.cssRem).toAttrs()) {
+            PrimaryButton(
+                if (uploading) "Uploading…" else "Upload package",
+                enabled = !uploading && !checking && precheck?.ok == true && user != null
+            ) { scope.launch { upload() } }
+            if (selectedFile != null) GhostButton("Clear", enabled = !uploading) { choose(null) }
         }
     }
 }

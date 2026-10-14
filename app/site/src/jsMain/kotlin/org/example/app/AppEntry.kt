@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import com.varabyte.kobweb.compose.css.ScrollBehavior
 import com.varabyte.kobweb.compose.ui.Modifier
+import com.varabyte.kobweb.compose.ui.modifiers.backgroundColor
 import com.varabyte.kobweb.compose.ui.modifiers.minHeight
 import com.varabyte.kobweb.compose.ui.modifiers.scrollBehavior
 import com.varabyte.kobweb.core.App
@@ -22,10 +23,8 @@ private const val COLOR_MODE_KEY = "app:colorMode"
 
 @InitSilk
 fun initColorMode(ctx: InitSilkContext) {
-    val savedMode = window.localStorage.getItem(COLOR_MODE_KEY)?.let {
-        try { ColorMode.valueOf(it) } catch (e: Exception) { null }
-    }
-    ctx.config.initialColorMode = savedMode ?: ColorMode.LIGHT
+    // The site is always dark
+    ctx.config.initialColorMode = ColorMode.DARK
 }
 
 @InitSilk
@@ -43,7 +42,7 @@ fun AppEntry(content: @Composable () -> Unit) {
         LaunchedEffect(colorMode) {
             window.localStorage.setItem(COLOR_MODE_KEY, colorMode.name)
         }
-        Surface(SmoothColorStyle.toModifier().minHeight(100.vh)) {
+        Surface(SmoothColorStyle.toModifier().minHeight(100.vh).backgroundColor(com.varabyte.kobweb.compose.ui.graphics.Colors.Transparent)) {
             content()
         }
     }
