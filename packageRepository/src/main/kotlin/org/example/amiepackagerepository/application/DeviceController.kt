@@ -1,7 +1,6 @@
 package org.example.amiepackagerepository.application
 
-import com.google.api.services.drive.Drive
-import org.example.amiepackagerepository.shared.integration.github.service.GithubService
+import org.example.amiepackagerepository.shared.packagestore.PackageStoreClient
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
 import org.example.amiepackagerepository.shared.transactionalMiddleware.enumerables.DeviceActions
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.DeviceDto
@@ -23,16 +22,14 @@ import java.util.concurrent.CompletableFuture
  * REST Controller for managing device status and compatibility endpoints.
  * Provides endpoints for saving, retrieving, and syncing device configurations.
  *
- * @property driveService Google Drive service instance for file management.
- * @property simpleService GitHub service instance for repository integration.
+ * @property store The package store (the S3 bucket), where the compatibility endpoints live.
  * @property userService User management service.
  * @property deviceService Repository for managing transactional device statuses.
  */
 @CrossOrigin(origins = ["\${amie.cors.allowed-origins}"])
 @RestController
 class DeviceController(
-    private val driveService: Drive,
-    private val simpleService: GithubService,
+    private val store: PackageStoreClient,
     private val userService: UserService,
     private val deviceService: TransactionalStatusRepository
 ) {
@@ -68,25 +65,29 @@ class DeviceController(
     }
 
     /**
-     * Fetches compatible device endpoints from GitHub.
+     * Fetches compatible device endpoints from the package store.
      *
      * @return A map of retail names to descriptive names for compatible devices.
      */
     @GetMapping("/fetch-endpoints")
     fun getDeviceCompatibility(): Map<String, String>? {
         logger.info("--- [GET /fetch-endpoints] START ---")
-        return simpleService.fetchEndpoints().also {
+        return store.fetchEndpoints().also {
             logger.info("--- [GET /fetch-endpoints] END ---")
         }
     }
 
     /**
-     * Triggers the publishing of hardcoded device compatibility endpoints to GitHub.
+     * Publishes the built-in device compatibility endpoints to the package store.
      */
     @PostMapping("/post-endpoints")
     fun putDeviceCompatibility() {
         logger.info("--- [POST /post-endpoints] START ---")
-        simpleService.postEndpoints()
+        try {
+            store.postEndpoints()
+        } catch (e: Exception) {
+            logger.error("Endpoints could not be published: {}", e.message)
+        }
         logger.info("--- [POST /post-endpoints] END ---")
     }
 

@@ -1,12 +1,14 @@
-package org.example.amiepackagerepository.shared.integration.github.service
+package org.example.amiepackagerepository.shared.integration.gdrive
 
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.model.File as DriveFile
 import com.google.api.services.drive.model.FileList
-import com.google.common.base.CharMatcher.any
-import okhttp3.internal.concurrent.TaskRunner.Companion.logger
 import org.example.amiepackagerepository.shared.transactionalMiddleware.integration.gdrive.DriveService
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.ExtendWith
+import org.mockito.junit.jupiter.MockitoExtension
+import org.mockito.junit.jupiter.MockitoSettings
+import org.mockito.quality.Strictness
 import org.junit.jupiter.api.assertThrows
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mock
@@ -16,10 +18,10 @@ import org.mockito.Mockito.`when`
 import java.io.File
 import java.io.IOException
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
-import org.slf4j.Logger
 
-
+/** [DriveService] against a mocked Drive client (the Google Drive integration is not part of the package store). */
+@ExtendWith(MockitoExtension::class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class DriveServiceTest {
     @Mock
     private lateinit var driveClient: Drive
@@ -32,8 +34,7 @@ class DriveServiceTest {
     @Mock
     private lateinit var getMock: Drive.Files.Get
 
-    @Mock
-    private lateinit var driveService: DriveService
+    private val driveService = DriveService()
 
     @Test
     fun `downloadFile - happy path - downloads first matching file successfully`() {
@@ -61,7 +62,6 @@ class DriveServiceTest {
         driveService.downloadFile(driveClient, fileName, savePath)
 
         verify(getMock).executeAndDownloadTo(any())
-        verify(logger).info("File '{}' downloaded successfully.", fileName)
     }
 
     @Test
@@ -113,7 +113,6 @@ class DriveServiceTest {
         }
 
         assertEquals("File not found on Google Drive: $fileName", exception.message)
-        verify(logger).error("File '{}' not found on Google Drive.", fileName)
         verify(filesMock, never()).get(any())
     }
 
@@ -192,7 +191,6 @@ class DriveServiceTest {
         verify(listMock).setFields("nextPageToken, files(id, name)")
         verify(listMock).setSupportsAllDrives(true)
         verify(listMock).setIncludeItemsFromAllDrives(true)
-        verify(logger).info("Found {} files in Google Drive", any())
     }
 
     @Test
@@ -210,7 +208,6 @@ class DriveServiceTest {
         val result = driveService.listFiles(driveClient)
 
         assertEquals("Is null or empty.", result)
-        verify(logger).info("No Google Drive files found.")
     }
 
     @Test
@@ -228,7 +225,6 @@ class DriveServiceTest {
         val result = driveService.listFiles(driveClient)
 
         assertEquals("Is null or empty.", result)
-        verify(logger).info("No Google Drive files found.")
     }
 
     @Test

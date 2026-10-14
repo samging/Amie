@@ -88,7 +88,7 @@ fun Navigateto() {
                     // Let the site's server forget its copies too, so the new jar shows up at once
                     runCatching { Http.get(AmieConfig.api("jars?refresh=1")) }
                     runCatching { Http.get(AmieConfig.api("repo-by-username?username=${encodeURIComponent(owner)}&refresh=1")) }
-                    runCatching { Http.get(AmieConfig.api("list-github?refresh=1")) }
+                    runCatching { Http.get(AmieConfig.api("packages?refresh=1")) }
                     notice = "${file.name} was uploaded."
                     noticeKind = BannerKind.SUCCESS
                     ctx.router.navigateTo("/dashboard?username=${encodeURIComponent(owner)}")

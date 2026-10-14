@@ -2,6 +2,7 @@ package org.example.app.pages
 
 import androidx.compose.runtime.*
 import com.varabyte.kobweb.compose.css.FontWeight
+import com.varabyte.kobweb.compose.css.WhiteSpace
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
@@ -39,6 +40,7 @@ fun Dashboard() {
     var loggedInUser by remember { mutableStateOf<String?>(null) }
     var packages by remember { mutableStateOf<List<Json>>(emptyList()) }
     var devices by remember { mutableStateOf<List<Json>>(emptyList()) }
+    var errors by remember { mutableStateOf<List<Json>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeKind by remember { mutableStateOf(BannerKind.INFO) }
@@ -64,9 +66,20 @@ fun Dashboard() {
         }
     }
 
+    /** The errors the owner's app reported; only the owner's token can read them, so guests skip this. */
+    suspend fun loadErrors() {
+        if (username.isEmpty() || loggedInUser != username) return
+        val token = AuthClient.accessToken() ?: return
+        val text = runCatching {
+            Http.get(AmieConfig.api("errors?username=${encodeURIComponent(username)}"), Http.bearer(token), noStore = true)
+        }.getOrNull()?.takeIf { it.ok }?.text ?: "[]"
+        errors = parseList(text)
+    }
+
     LaunchedEffect(username) {
         loggedInUser = AuthClient.currentUser()
         load(refresh = false)
+        loadErrors()
     }
 
     val isOwner = loggedInUser != null && loggedInUser == username
@@ -79,7 +92,7 @@ fun Dashboard() {
         }
 
         PageHeading(if (isOwner) "Your packages" else "Packages by $username", if (isOwner) "Signed in as $username" else null) {
-            GhostButton(if (loading) "Refreshing…" else "Refresh", enabled = !loading) { scope.launch { load(refresh = true) } }
+            GhostButton(if (loading) "Refreshing…" else "Refresh", enabled = !loading) { scope.launch { load(refresh = true); loadErrors() } }
             if (isOwner) {
                 LinkButton("Upload a package", "/navigateto?username=${encodeURIComponent(username)}")
                 LinkButton("Profile", "/profile", primary = false)
@@ -101,6 +114,45 @@ fun Dashboard() {
                             Td { Text(device["name"] as? String ?: "–") }
                             Td { Text(device["port"] as? String ?: "–") }
                             Td { Text(device["deviceEndpoint"] as? String ?: "–") }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (isOwner) {
+            Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).justifyContent(JustifyContent.SpaceBetween).margin(bottom = 0.8.cssRem).toAttrs()) {
+                H2(Modifier.fontSize(14.px).margin(0.px).toAttrs()) { Text("Errors from your app") }
+                if (errors.isNotEmpty()) {
+                    DangerButton("Clear") {
+                        scope.launch {
+                            val result = runCatching {
+                                Http.postForm(AmieConfig.api("errors-clear?username=${encodeURIComponent(username)}"), emptyMap(), Http.bearer(AuthClient.accessToken()))
+                            }.getOrNull()
+                            if (result?.ok == true) {
+                                notice = "The error log was cleared."
+                                noticeKind = BannerKind.SUCCESS
+                            } else {
+                                notice = if (result?.status == 401) "Please sign in again to clear the error log." else "The error log could not be cleared."
+                                noticeKind = BannerKind.ERROR
+                            }
+                            loadErrors()
+                        }
+                    }
+                }
+            }
+            if (errors.isEmpty()) {
+                Card(Modifier.margin(bottom = 2.cssRem)) { MutedText("Your app has not reported an error.") }
+            } else {
+                Table(DataTableStyle.toModifier().margin(bottom = 2.cssRem).toAttrs()) {
+                    Thead { Tr { Th { Text("When") }; Th { Text("Kind") }; Th { Text("Message") } } }
+                    Tbody {
+                        for (entry in errors) {
+                            Tr {
+                                Td { SpanText(formatDate(entry["time"] as? String), Modifier.whiteSpace(WhiteSpace.NoWrap)) }
+                                Td { Text(entry["error"] as? String ?: "–") }
+                                Td { Text(entry["message"] as? String ?: "–") }
+                            }
                         }
                     }
                 }

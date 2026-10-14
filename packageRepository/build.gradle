@@ -64,6 +64,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'
+    testImplementation 'org.mockito.kotlin:mockito-kotlin:5.3.1'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test'
     testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
@@ -89,12 +90,13 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
-// Skip test sources that are still being written, e.g.
-//   ./gradlew test -PexcludeTests='**/DriveControllerTest.kt,**/GithubControllerTest.kt' --tests '*JarInspectorTest'
+// Test sources to leave out of the build. By default that is only the Spring context test, which needs a
+// running Postgres and the Google Drive credentials file; pass -PexcludeTests='' to include it, or a
+// comma-separated list of globs to skip others, e.g. -PexcludeTests='**/DriveControllerTest.kt'
 tasks.named('compileTestKotlin') {
-    if (project.hasProperty('excludeTests')) {
-        exclude(project.property('excludeTests').toString().split(',').collect { it.trim() })
-    }
+    def excluded = project.hasProperty('excludeTests') ? project.property('excludeTests').toString() : '**/AmiePackageRepositoryApplicationTests.kt'
+    def globs = excluded.split(',').collect { it.trim() }.findAll { !it.isEmpty() }
+    if (!globs.isEmpty()) exclude(globs)
 }
 
 tasks.named('asciidoctor') {

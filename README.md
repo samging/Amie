@@ -1,6 +1,6 @@
 do api for the google disk
 
-Runs on kobweb, before run you must export JAVA_HOME env along with GITHUB_TOKEN in order to run locally.
+Runs on kobweb, before run you must export JAVA_HOME env in order to run locally.
 # Start Backend
 ```./gradlew bootRun -Dorg.gradle.jvmargs="-Xmx2g" &```
 # Start Frontend
@@ -12,15 +12,15 @@ Runs on kobweb, before run you must export JAVA_HOME env along with GITHUB_TOKEN
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `GITHUB_TOKEN` | backend, site API routes | token for the `samging/codeRepository` package store |
 | `AMIE_BACKEND_PORT` | backend | listen port (default 8080; use 8090 when Keycloak holds 8080 on the same machine) |
 | `KEYCLOAK_ISSUER` | backend | the `iss` claim of the realm's tokens: realm frontend URL + `/realms/master` (default `http://192.168.1.114:8080/realms/master`) |
 | `KEYCLOAK_JWKS_URI` | backend | where the backend reaches the realm's certs endpoint (default `http://localhost:8080/realms/master/protocol/openid-connect/certs`) |
 | `KEYCLOAK_URL` | site server | where the Kobweb server reaches Keycloak (default `http://localhost:8080`) |
 | `KEYCLOAK_CLIENT_SECRET` | site server | the confidential `amie` client's secret for `/api/keycloak/token`; never shipped to browsers |
-| `AMIE_SITE_URL` | site server | public origin of the site for the OAuth redirect URI (default `http://localhost:8081`) |
+| `AMIE_SITE_URL` | site server, backend | public origin of the site: the OAuth redirect URI, and the `html_url` links in the backend's package listings (default `http://localhost:8081`) |
 | `AMIE_BACKEND_URL` | site server | where the Kobweb server reaches the backend for its `/api/...` proxies (default `http://localhost:8080`) |
-| `AMIE_S3_SERVICE_URL` | site server, backend | the awsS3 service that lists and serves jars (default `http://localhost:8088`); empty on the backend disables jar mirroring |
+| `AMIE_S3_SERVICE_URL` | site server, backend | the awsS3 service in front of the S3 bucket, the only package store (default `http://localhost:8088`) |
+| `AMIE_S3_PUBLIC_URL` | awsS3 | the address clients download from; every `download_url` the service lists is built on it (default `http://localhost:8088`) |
 
 ## Website pages
 
@@ -30,7 +30,7 @@ Runs on kobweb, before run you must export JAVA_HOME env along with GITHUB_TOKEN
 | `/downloads` | Jar downloads, listed from the S3 bucket through the site's `/api/jars` and `/api/jar-download` routes |
 | `/docs` | The desktop app documentation (the MkDocs pages from `amieAppStable/docs`, kept in `app/site/src/jsMain/resources/markdown/docs`) |
 | `/navigateto` | Upload a package jar (signed in) |
-| `/dashboard?username=` | One author's packages and devices; owners can replace and delete |
+| `/dashboard?username=` | One author's packages and devices; owners can replace and delete, and see the errors their app reported (`/api/errors`, cleared with `/api/errors-clear`) |
 | `/loginpage` | Sign in with username and password, with the browser (SSO), or by scanning a QR code on a phone |
 | `/admin` | For Keycloak accounts with the `admin` role (`AMIE_ADMIN_ROLE`): remove any package or build, publish application builds |
 
@@ -53,8 +53,17 @@ instead of going through the site's cache. The admin routes verify the Keycloak 
 An uploaded package must be a jar with at least one public class exposing `run(input: String): List<String>`
 and `close()` (see `packageRepository/.../shared/packages/AmiePackage.kt`). The upload page checks the file is a
 jar in the browser; `POST /upload` inspects the classes (`JarInspector`) and refuses anything else with a 400
-and the reason. Accepted jars are stored in the package store and mirrored to the S3 bucket, where the awsS3
-service (`/api/aws/jars`) serves them for the downloads page.
+and the reason. Accepted jars are stored in the S3 bucket at `uploads/<user>/jar/<file>`; the awsS3 service
+(`/api/aws/jars`) serves them for the downloads page.
+
+### The package store
+
+The S3 bucket behind the awsS3 service is the only store. Package files live at `uploads/<user>/<lang>/<file>`,
+a user's device state at `uploads/<user>/state/devices.json` and the errors the desktop app reports at
+`uploads/<user>/state/errors.jsonl`. The site proxies the backend for all of it: `/api/packages` (the listing),
+`/api/view?package=`, `/api/delete-package`, and `GET /api/errors?username=` with the owner's
+`Authorization: Bearer` header, which the dashboard shows under "Errors from your app"
+(`POST /api/errors-clear?username=` empties the log).
 
 ### Caching
 

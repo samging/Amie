@@ -54,7 +54,7 @@ fun IndexPage() {
         error = null
         try {
             val text = ClientCache.cached("packages:all", ClientCache.MINUTE, refresh) {
-                val result = Http.get(AmieConfig.api("list-github" + if (refresh) "?refresh=1" else ""))
+                val result = Http.get(AmieConfig.api("packages" + if (refresh) "?refresh=1" else ""))
                 if (!result.ok) throw IllegalStateException()
                 result.text
             }

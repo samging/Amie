@@ -50,15 +50,17 @@ class GoogleDriveClientConfigTest {
 
     @Test
     fun `connectToDisk - valid service account key - initializes Drive bean successfully`(@TempDir tempDir: File) {
+        // A throwaway RSA key so the credentials parse; nothing is ever sent to Google in this test
+        val keyPair = java.security.KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
+        val pem = java.util.Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(keyPair.private.encoded)
         val serviceAccountJson = File(tempDir, "service-account.json").apply {
-            //[NOTE to Reader] it's not the real private key, check .env files
             writeText(
                 """
                 {
                   "type": "service_account",
                   "project_id": "test-project",
                   "private_key_id": "key-id",
-                  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFMMSCBKgwggSkAgEAAoIBAQCCoI\n-----END PRIVATE KEY-----\n",
+                  "private_key": "-----BEGIN PRIVATE KEY-----\n${pem.replace("\n", "\\n")}\n-----END PRIVATE KEY-----\n",
                   "client_email": "test@test-project.iam.gserviceaccount.com",
                   "client_id": "123456789",
                   "auth_uri": "https://accounts.google.com/o/oauth2/auth",

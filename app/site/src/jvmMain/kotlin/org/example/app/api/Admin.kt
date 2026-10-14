@@ -72,7 +72,7 @@ suspend fun adminDeleteJar(ctx: ApiContext) {
     }
 }
 
-/** `POST /api/admin-delete-package?package=`: removes any file from the package store. */
+/** `POST /api/admin-delete-package?package=`: removes any file from the bucket through the awsS3 service. */
 @Api("admin-delete-package")
 suspend fun adminDeletePackage(ctx: ApiContext) {
     if (ctx.req.method != HttpMethod.POST) { ctx.res.status = 405; return }
@@ -82,12 +82,21 @@ suspend fun adminDeletePackage(ctx: ApiContext) {
         ctx.sendJson(400, """{"error":"invalid_path"}""")
         return
     }
-    val status = deleteFromPackageStore(path)
-    ctx.logger.info("Admin ${identity.username} deleted package $path: $status")
-    when (status) {
-        200 -> { ServerCache.invalidate("packages:"); ctx.sendJson(200, """{"ok":true}""") }
-        404 -> ctx.sendJson(404, """{"error":"not_found"}""")
-        else -> ctx.sendJson(502, """{"error":"unavailable"}""")
+    try {
+        val encoded = URLEncoder.encode(path, Charsets.UTF_8)
+        val response = HttpClient.newHttpClient().send(
+            HttpRequest.newBuilder(URI.create(ServerConfig.s3Service("/api/aws/files/content?key=$encoded"))).DELETE().build(),
+            HttpResponse.BodyHandlers.ofString()
+        )
+        ctx.logger.info("Admin ${identity.username} deleted package $path: ${response.statusCode()}")
+        when (response.statusCode()) {
+            204 -> { ServerCache.invalidate("packages:"); ctx.sendJson(200, """{"ok":true}""") }
+            404 -> ctx.sendJson(404, """{"error":"not_found"}""")
+            else -> ctx.sendJson(502, """{"error":"unavailable"}""")
+        }
+    } catch (e: Exception) {
+        ctx.logger.warn("Admin delete package failed: ${e.message}")
+        ctx.sendJson(502, """{"error":"unavailable"}""")
     }
 }
 

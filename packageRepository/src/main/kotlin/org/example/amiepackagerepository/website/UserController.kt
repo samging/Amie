@@ -1,8 +1,7 @@
 package org.example.amiepackagerepository.website
 
-import com.google.api.services.drive.Drive
-import org.example.amiepackagerepository.shared.integration.github.dto.GithubContentResponseDto
-import org.example.amiepackagerepository.shared.integration.github.service.GithubService
+import org.example.amiepackagerepository.shared.packagestore.PackageStoreClient
+import org.example.amiepackagerepository.shared.packagestore.dto.PackageFileDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileUpdateDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
@@ -28,20 +27,19 @@ import org.springframework.web.server.ResponseStatusException
  * - User registration and dashboard initialization.
  * - JWT-based login for standard and guest users.
  * - Token validation for protected resources.
- * - Searching and listing user packages from GitHub.
+ * - Searching and listing user packages in the package store (the S3 bucket).
  */
 @CrossOrigin(origins = ["\${amie.cors.allowed-origins}"])
 @RestController
 class UserController(
-    private val driveService: Drive,
-    private val simpleService: GithubService,
+    private val store: PackageStoreClient,
     private val userService: UserService,
     private val deviceService: TransactionalStatusRepository
 ) {
     private val logger = LoggerFactory.getLogger(UserController::class.java)
 
     /**
-     * Registers a new user and creates their GitHub dashboard.
+     * Registers a new user and creates their dashboard folder in the package store.
      *
      * @param registerRequest A map containing "username" and "password".
      * @return A success message.
@@ -68,7 +66,7 @@ class UserController(
         }
 
         userService.createUser(username, password)
-        simpleService.createUserDashboard(username = username)
+        store.createUserDashboard(username)
         userService.logActivity(username, "REGISTER", "User registered: $username")
 
         logger.info("User registered successfully: {}", username)
@@ -103,7 +101,7 @@ class UserController(
         try {
             userService.grantUserToken(username)
             println("USER TOKEN GENERATED")
-            simpleService.createUserDashboard(username = username)
+            store.createUserDashboard(username)
             userService.logActivity(username, "LOGIN", "User logged in: $username")
         } catch (e: Exception) {
             logger.error("Dashboard creation non-fatal error: {}", e.message)
@@ -115,7 +113,9 @@ class UserController(
     }
 
     /**
-     * Logs a login error to GitHub for a specific user.
+     * Appends an error a client ran into to that user's error log in the package store (shown on the
+     * website's dashboard). Unauthenticated, as older clients call it before signing in; the signed-in
+     * route is `POST /errors`.
      *
      * @param request A map containing "error" and "username".
      */
@@ -124,7 +124,7 @@ class UserController(
         val error = request["error"] ?: "Unknown"
         val username = request["username"] ?: "unknown"
         logger.info("--- [POST /handle-login-error] (user: {}, error: {}) ---", username, error)
-        simpleService.writeError(username, "LoginError", error)
+        store.writeError(username, "LoginError", error)
     }
 
     /**
@@ -170,7 +170,7 @@ class UserController(
     }
 
     /**
-     * Searches for files in the GitHub repository based on a query.
+     * Searches the package store.
      *
      * @param query The search term (supports '*ext' for extension search).
      * @return A result object matching the query.
@@ -178,19 +178,26 @@ class UserController(
     @GetMapping("/query")
     fun searchFiles(@RequestParam query: String): Any {
         logger.info("--- [GET /query] START (query: {}) ---", query)
-        return simpleService.queryFilesGithub(query) ?: emptyList<Any>().also { logger.info("--- [GET /query] END ---") }
+        return (store.query(query) ?: emptyList<Any>()).also { logger.info("--- [GET /query] END ---") }
     }
 
     /**
-     * Lists all packages (non-markdown files) for a specific user from GitHub.
+     * Lists the files a user published (nothing from their `state/` folder, no Markdown).
      *
      * @param username The username whose packages are requested.
      * @return A list of package metadata objects.
      */
     @GetMapping("/user-packages")
-    fun getUserPackages(@RequestParam username: String): List<GithubContentResponseDto> {
+    fun getUserPackages(@RequestParam username: String): List<PackageFileDto> {
         logger.info("--- [GET /user-packages] START (user: {}) ---", username)
-        return simpleService.listUserPackages(username).also { logger.info("--- [GET /user-packages] END ---") }
+        return try {
+            store.listUserPackages(username)
+        } catch (e: Exception) {
+            logger.warn("Packages of {} unavailable: {}", username, e.message)
+            emptyList()
+        } finally {
+            logger.info("--- [GET /user-packages] END ---")
+        }
     }
 
     /**

@@ -34,25 +34,44 @@ On a machine where Keycloak already listens on 8080, start the backend on anothe
 
 | Code | Endpoint | Token | Used by |
 |---|---|---|---|
-| `render/templates/Client.kt` `rest()` | `/get-device-status`, `/update-device-status`, `/fetch-endpoints`, `/list-github`, `/list-github-metadata`, `/handle-login-error` | bearer when signed in | device dashboard, endpoints, plugins, device terminal |
+| `render/templates/Client.kt` `rest()` | `/get-device-status`, `/update-device-status`, `/fetch-endpoints`, `/list-github` (alias of `/packages`), `/list-github-metadata`, `/handle-login-error` | bearer when signed in | device dashboard, endpoints, plugins, device terminal |
 | `backend/AmieBackend.kt` | `/me`, `/user-packages`, `/upload` | bearer, required | Models page: **Publish** on a model component |
-| `util/DownloadService.kt` | `/list-github` | none | package list text |
+| `util/DownloadService.kt` | `/list-github` (alias of `/packages`) | none | package list text |
 
 `Client.rest()` attaches `Authorization: Bearer <Keycloak access token>` through `AuthState.accessToken()`, which
 refreshes the token when it is about to expire. Guests send no token. An absolute URL passed as the slug is used
 as is; a path is joined to `baseUrl`. Failures land in `lastErrorMessage` and the dialog flags; only failures the
 server answered are reported to `/handle-login-error`.
 
-**Devices** are stored on the backend per username. `AppBaseTemplate` calls `DeviceManager.setSession` with the
+**Devices** are stored on the backend per username, in Postgres and in the bucket at
+`uploads/<user>/state/devices.json`. `AppBaseTemplate` calls `DeviceManager.setSession` with the
 Keycloak username whenever the session changes, so the backend sees the real user instead of a guest id. When the
 backend is unreachable the local `AMP/componentSettings.json` is kept (it used to be overwritten with `{}`).
+
+**Errors** the app logs at ERROR level are reported to the backend (`POST /errors` with the bearer; a guest's
+sign-in failures go to `/handle-login-error`) and appended to `uploads/<user>/state/errors.jsonl`. The website's
+dashboard shows them to the owner under "Errors from your app", with a button that clears the log.
+
+## The package store
+
+Everything a user publishes lives in one S3 bucket, reached only through the awsS3 service (port 8088); the
+backend holds no AWS credentials and calls that service over HTTP (`AMIE_S3_SERVICE_URL`). Keys under `uploads/`:
+
+| Key | What |
+|---|---|
+| `uploads/<user>/<lang>/<file>` | a published package file; `lang` is the `progLanguage` of the upload (`jar`, `onnx`, ...) |
+| `uploads/<user>/state/devices.json` | the user's device statuses |
+| `uploads/<user>/state/errors.jsonl` | the user's error log, one JSON object per line |
+
+Listings never include `.md` files or anything under `state/`. Every `download_url` is an HTTP address on the
+awsS3 service (`/api/aws/files/content?key=`), so a browser can fetch a file directly.
 
 ## Models page and package jars
 
 The Models page shows no backend status; it uses the Keycloak session for one thing: **Publish** on a model
 component calls `AmieBackend.publishModule`, which uploads `model.onnx` and `module.json` through `POST /upload`
-with `progLanguage=onnx` (stored as `uploads/<user>/onnx/<file>`; the backend needs a `GITHUB_TOKEN`, without one
-it answers "Error uploading file" and the page shows that). A guest pressing Publish is sent to the sign-in page;
+with `progLanguage=onnx` (stored in the bucket as `uploads/<user>/onnx/<file>`; when the awsS3 service is down the
+backend answers 502 and the page shows that). A guest pressing Publish is sent to the sign-in page;
 **Open website** in the header opens `siteUrl/dashboard`.
 
 Package jars flow the other way and need no token. `initMod("name.jar")` in the sandbox fetches a jar the server

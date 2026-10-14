@@ -119,7 +119,7 @@ and can terminate; ORT sessions are also printed with `sessions.print()`.
 ## Publishing
 
 Signed in with Keycloak, expand a model on the Models page and press **Publish**: `model.onnx` and `module.json`
-are uploaded to your package folder on the Amie backend (`POST /upload`, `progLanguage=onnx`) and the website's
-dashboard lists them. A guest pressing it is sent to the sign-in page. Requires the backend from
-[Amie backend](/docs/backend-integration) and a `GITHUB_TOKEN` on the backend side. Package jars go the other way: a
+are uploaded through the Amie backend (`POST /upload`, `progLanguage=onnx`) into the S3 bucket at
+`uploads/<user>/onnx/<file>`, and the website's dashboard lists them. A guest pressing it is sent to the sign-in
+page. Requires the backend and the awsS3 service from [Amie backend](/docs/backend-integration). Package jars go the other way: a
 script opens one the server lists with `initMod("name.jar")` (see [Packages](/docs/sandbox-scripting#packages)).

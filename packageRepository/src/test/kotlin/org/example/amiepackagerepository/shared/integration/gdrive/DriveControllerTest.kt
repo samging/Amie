@@ -1,4 +1,4 @@
-package org.example.amiepackagerepository.shared.integration.github.controller
+package org.example.amiepackagerepository.shared.integration.gdrive
 import com.google.api.services.drive.Drive
 import org.example.amiepackagerepository.shared.transactionalMiddleware.integration.gdrive.DriveController
 import org.example.amiepackagerepository.shared.transactionalMiddleware.integration.gdrive.DriveService
@@ -7,9 +7,9 @@ import org.example.amiepackagerepository.shared.transactionalMiddleware.service.
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
-import org.mockito.ArgumentMatchers.eq
 import org.mockito.InjectMocks
 import org.mockito.Mock
+import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doNothing
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
@@ -49,7 +49,9 @@ class DriveControllerTest {
     @BeforeEach
     fun setUp() {
         ReflectionTestUtils.setField(driveController, "downloadPath", testDownloadPath)
-        mockMvc = MockMvcBuilders.standaloneSetup(driveController).build()
+        mockMvc = MockMvcBuilders.standaloneSetup(driveController)
+            .addPlaceholderValue("amie.cors.allowed-origins", "http://localhost:8081")
+            .build()
     }
 
     @Test
@@ -115,8 +117,7 @@ class DriveControllerTest {
         val fileName = "missing-file.txt"
         val errorMessage = "File not found on Google Drive: $fileName"
 
-        `when`(simpleService.downloadFile(eq(driveService), eq(fileName), any()))
-            .doThrow(IOException(errorMessage))
+        doAnswer { throw IOException(errorMessage) }.`when`(simpleService).downloadFile(eq(driveService), eq(fileName), any())
 
         mockMvc.perform(get("/download").param("fileName", fileName))
             .andExpect(status().isOk)

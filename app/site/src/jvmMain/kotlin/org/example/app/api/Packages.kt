@@ -5,12 +5,12 @@ import com.varabyte.kobweb.api.ApiContext
 
 private const val TTL_SECONDS = 60L
 
-/** `GET /api/list-github`: everything under the package store's `uploads/` folder, cached for a minute. */
-@Api("list-github")
-suspend fun listGithub(ctx: ApiContext) {
+/** `GET /api/packages`: everything under the bucket's `uploads/` folder, cached for a minute. */
+@Api("packages")
+suspend fun listPackages(ctx: ApiContext) {
     val entry = try {
         ServerCache.fetch("packages:all", TTL_SECONDS, ctx.req.wantsRefresh) {
-            ServerCache.fetchUrl(ServerConfig.backend("/list-github"), ttlSeconds = TTL_SECONDS)
+            ServerCache.fetchUrl(ServerConfig.backend("/packages"), ttlSeconds = TTL_SECONDS)
         }
     } catch (e: Exception) {
         ctx.logger.warn("Package listing unavailable: ${e.message}")

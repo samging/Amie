@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -29,6 +30,7 @@ import software.amazon.awssdk.core.pagination.sync.SdkIterable
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.CommonPrefix
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
 import software.amazon.awssdk.services.s3.model.GetObjectResponse
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
@@ -59,7 +61,7 @@ class S3ServiceTest {
 
     @BeforeEach
     fun setUp() {
-        service = S3Service(s3Client, ObjectMapper(), BUCKET)
+        service = S3Service(s3Client, ObjectMapper(), BUCKET, PUBLIC_URL)
     }
 
     private fun stubPut(eTag: String) {
@@ -230,21 +232,152 @@ class S3ServiceTest {
     }
 
     @Test
-    fun `writeError logs the message as markdown under the user's folder`() = runTest {
+    fun `writeError appends a JSON line to the user's error log`() = runTest {
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), "{\"time\":\"2026-10-14T10:00:00Z\",\"error\":\"old\",\"message\":\"first\"}\n".toByteArray()))
+        stubPut("log")
+
         service.writeError("sam", "test-error", "test-message")
 
         val (request, body) = capturedPut()
-        assertEquals("uploads/sam/errors.md", request.key())
-        assertEquals("text/markdown; charset=utf-8", request.contentType())
-        assertEquals("[test-error]: test-message", String(body.bytes()))
+        assertEquals("uploads/sam/state/errors.jsonl", request.key())
+        assertEquals("application/x-ndjson; charset=utf-8", request.contentType())
+        val lines = String(body.bytes()).trim().lines()
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].contains("\"error\":\"old\""))
+        assertTrue(lines[1].contains("\"error\":\"test-error\"") && lines[1].contains("\"message\":\"test-message\""))
+    }
+
+    @Test
+    fun `writeError starts a new log when there is none and keeps the last 200 lines`() = runTest {
+        val existing = (1..200).joinToString("\n") { """{"time":"t$it","error":"e","message":"m$it"}""" } + "\n"
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenThrow(notFound())
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), existing.toByteArray()))
+        stubPut("log")
+
+        service.writeError("sam", "first", "boom")
+        service.writeError("sam", "latest", "boom")
+
+        val request = ArgumentCaptor.forClass(PutObjectRequest::class.java)
+        val body = ArgumentCaptor.forClass(RequestBody::class.java)
+        verify(s3Client, org.mockito.Mockito.times(2)).putObject(request.capture(), body.capture())
+        val first = String(body.allValues[0].bytes()).trim().lines()
+        assertEquals(1, first.size)
+        val second = String(body.allValues[1].bytes()).trim().lines()
+        assertEquals(200, second.size)
+        assertTrue(second.first().contains("\"message\":\"m2\""))
+        assertTrue(second.last().contains("\"error\":\"latest\""))
     }
 
     @Test
     fun `writeError swallows S3 failures`() = runTest {
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java))).thenThrow(notFound())
         `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
             .thenThrow(RuntimeException("down"))
 
         service.writeError("sam", "e", "m")
+    }
+
+    @Test
+    fun `listErrors returns the log newest first and nothing when there is no log`() = runTest {
+        val log = """{"time":"2026-10-14T10:00:00Z","error":"a","message":"first"}
+{"time":"2026-10-14T11:00:00Z","error":"b","message":"second"}
+not json
+"""
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(), log.toByteArray()))
+            .thenThrow(notFound())
+
+        val entries = service.listErrors("sam")
+        assertEquals(listOf("b", "a"), entries.map { it.error })
+        assertEquals("second", entries[0].message)
+        assertEquals("2026-10-14T11:00:00Z", entries[0].time)
+
+        assertTrue(service.listErrors("sam").isEmpty())
+        assertTrue(service.listErrors("").isEmpty())
+    }
+
+    @Test
+    fun `clearErrors deletes the log object`() = runTest {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenReturn(HeadObjectResponse.builder().build())
+
+        assertTrue(service.clearErrors("sam"))
+
+        val request = ArgumentCaptor.forClass(DeleteObjectRequest::class.java)
+        verify(s3Client).deleteObject(request.capture())
+        assertEquals("uploads/sam/state/errors.jsonl", request.value.key())
+    }
+
+    // ---- objects by key ----------------------------------------------------------------------------
+
+    @Test
+    fun `getObject returns bytes, content type and etag, or null when missing`() = runTest {
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().contentType("application/json").eTag("\"e1\"").build(), "{}".toByteArray()))
+            .thenThrow(notFound())
+
+        val stored = service.getObject("uploads/sam/state/devices.json")!!
+        assertEquals("devices.json", stored.name)
+        assertEquals("application/json", stored.contentType)
+        assertEquals("\"e1\"", stored.eTag)
+        assertArrayEquals("{}".toByteArray(), stored.bytes)
+
+        assertNull(service.getObject("uploads/sam/state/missing.json"))
+    }
+
+    @Test
+    fun `putObject writes the key with its content type`() = runTest {
+        stubPut("\"put\"")
+
+        val eTag = service.putObject("uploads/sam/state/devices.json", "{}".toByteArray(), "application/json")
+
+        assertEquals("\"put\"", eTag)
+        val (request, body) = capturedPut()
+        assertEquals("uploads/sam/state/devices.json", request.key())
+        assertEquals("application/json", request.contentType())
+        assertArrayEquals("{}".toByteArray(), body.bytes())
+    }
+
+    @Test
+    fun `deleteObject reports whether there was something to delete`() = runTest {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java)))
+            .thenReturn(HeadObjectResponse.builder().build())
+            .thenThrow(notFound())
+
+        assertTrue(service.deleteObject("uploads/sam/jar/echo.jar"))
+        assertFalse(service.deleteObject("uploads/sam/jar/gone.jar"))
+
+        verify(s3Client, org.mockito.Mockito.times(1)).deleteObject(any(DeleteObjectRequest::class.java))
+    }
+
+    @Test
+    fun `objects outside uploads or with dot segments are refused`() {
+        for (key in listOf("releases/amie.dmg", "uploads/", "uploads/../secret", "uploads/sam/./x", "/uploads/sam/x", "uploads/sam/")) {
+            assertFalse(S3Service.isAllowedKey(key), key)
+            assertThrows(IllegalArgumentException::class.java) { runBlocking { service.getObject(key) } }
+        }
+        assertTrue(S3Service.isAllowedKey("uploads/sam/jar/echo.jar"))
+        assertTrue(S3Service.isAllowedFileName("jar/echo.jar"))
+        assertFalse(S3Service.isAllowedFileName("../echo.jar"))
+        assertFalse(S3Service.isAllowedFileName("/echo.jar"))
+    }
+
+    @Test
+    fun `listStates names the json files in the state folder`() = runTest {
+        stubPaginator(
+            objects = listOf(
+                S3Object.builder().key("uploads/sam/state/devices.json").build(),
+                S3Object.builder().key("uploads/sam/state/errors.jsonl").build(),
+                S3Object.builder().key("uploads/sam/state/collections.json").build(),
+                S3Object.builder().key("uploads/sam/state/nested/x.json").build()
+            )
+        )
+
+        assertEquals(listOf("collections", "devices"), service.listStates("sam"))
+        val request = ArgumentCaptor.forClass(ListObjectsV2Request::class.java)
+        verify(s3Client).listObjectsV2Paginator(request.capture())
+        assertEquals("uploads/sam/state/", request.value.prefix())
     }
 
     // ---- endpoints -------------------------------------------------------------------------------------
@@ -304,7 +437,7 @@ class S3ServiceTest {
         assertEquals("uploads/test.txt", result["path"])
         assertEquals("file", result["type"])
         assertEquals(1024L, result["size"])
-        assertEquals("s3://$BUCKET/uploads/test.txt", result["download_url"])
+        assertEquals("$PUBLIC_URL/api/aws/files/content?key=uploads%2Ftest.txt", result["download_url"])
     }
 
     @Test
@@ -404,8 +537,8 @@ class S3ServiceTest {
         val result = service.listFiles()
 
         assertEquals(2, result.size)
-        assertEquals(S3ItemDto("documents", "uploads/documents/", "s3://$BUCKET/uploads/documents/", null, "dir", null), result[0])
-        assertEquals(S3ItemDto("photo.png", "uploads/photo.png", "s3://$BUCKET/uploads/photo.png", "\"etag-123\"", "file", 2048L), result[1])
+        assertEquals(S3ItemDto("documents", "uploads/documents/", "", null, "dir", null), result[0])
+        assertEquals(S3ItemDto("photo.png", "uploads/photo.png", "$PUBLIC_URL/api/aws/files/content?key=uploads%2Fphoto.png", "\"etag-123\"", "file", 2048L), result[1])
         val request = ArgumentCaptor.forClass(ListObjectsV2Request::class.java)
         verify(s3Client).listObjectsV2Paginator(request.capture())
         assertEquals("uploads/", request.value.prefix())
@@ -428,11 +561,13 @@ class S3ServiceTest {
     }
 
     @Test
-    fun `listUserPackages lists the user's files and drops markdown`() = runTest {
+    fun `listUserPackages lists the user's files and drops markdown and state`() = runTest {
         stubPaginator(
             objects = listOf(
                 S3Object.builder().key("uploads/john_doe/package.zip").size(1024L).eTag("\"etag-zip\"").build(),
-                S3Object.builder().key("uploads/john_doe/README.MD").size(512L).eTag("\"etag-md\"").build()
+                S3Object.builder().key("uploads/john_doe/README.MD").size(512L).eTag("\"etag-md\"").build(),
+                S3Object.builder().key("uploads/john_doe/state/devices.json").size(12L).eTag("\"etag-state\"").build(),
+                S3Object.builder().key("uploads/john_doe/state/errors.jsonl").size(12L).eTag("\"etag-log\"").build()
             )
         )
 
@@ -461,5 +596,6 @@ class S3ServiceTest {
 
     companion object {
         private const val BUCKET = "test-bucket"
+        private const val PUBLIC_URL = "http://s3.test:8088"
     }
 }

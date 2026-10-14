@@ -36,7 +36,7 @@ action matrix:
 | **Publish** | Uploads `model.onnx` and `module.json` to the Amie backend (`POST /upload`, `progLanguage=onnx`) with the Keycloak token; a guest is sent to the sign-in page |
 
 Under the matrix the panel lists the labels, the encoder and, while listening, the serving URL, then
-**SESSIONS OF <name>**: every session this model owns (`<name> · session #id`, idle or inferring, runs, open for
+**SESSIONS OF \<name\>**: every session this model owns (`<name> · session #id`, idle or inferring, runs, open for
 how long) with **Terminate** on each and **Terminate all** for the model.
 
 A fresh checkout has one component already: the **dummy** model (`modules/AmpModules.kt`, `ensureDummyModule`),

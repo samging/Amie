@@ -21,6 +21,7 @@ import software.amazon.awssdk.core.ResponseBytes
 import software.amazon.awssdk.core.ResponseInputStream
 import software.amazon.awssdk.core.pagination.sync.SdkIterable
 import software.amazon.awssdk.http.AbortableInputStream
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
 import software.amazon.awssdk.services.s3.model.GetObjectResponse
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
@@ -44,6 +45,8 @@ import org.springframework.test.web.servlet.MvcResult
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
@@ -171,14 +174,130 @@ class UploadControllerTest {
     }
 
     @Test
-    fun `errors are written as markdown and answered with 204`() {
+    fun `errors are appended to the user's log, listed newest first and cleared`() {
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenThrow(S3Exception.builder().statusCode(404).message("Not Found").build() as S3Exception)
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().build(),
+                "{\"time\":\"t1\",\"error\":\"E1\",\"message\":\"boom\"}\n{\"time\":\"t2\",\"error\":\"E2\",\"message\":\"bang\"}\n".toByteArray()))
+        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
+            .thenReturn(PutObjectResponse.builder().eTag("\"log\"").build())
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java))).thenReturn(HeadObjectResponse.builder().build())
+
         mockMvc.perform(post("/api/aws/errors").param("username", "sam").param("error", "E1").param("message", "boom"))
             .andReturn().dispatched()
             .andExpect(status().isNoContent)
+        val request = ArgumentCaptor.forClass(PutObjectRequest::class.java)
+        verify(s3Client).putObject(request.capture(), any(RequestBody::class.java))
+        assertEquals("uploads/sam/state/errors.jsonl", request.value.key())
+
+        mockMvc.perform(get("/api/aws/errors").param("username", "sam")).andReturn().dispatched()
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$[0].error").value("E2"))
+            .andExpect(jsonPath("$[1].message").value("boom"))
+
+        mockMvc.perform(delete("/api/aws/errors").param("username", "sam")).andReturn().dispatched()
+            .andExpect(status().isNoContent)
+        val deleted = ArgumentCaptor.forClass(DeleteObjectRequest::class.java)
+        verify(s3Client).deleteObject(deleted.capture())
+        assertEquals("uploads/sam/state/errors.jsonl", deleted.value.key())
+    }
+
+    @Test
+    fun `objects can be read, written and deleted by key`() {
+        `when`(s3Client.getObjectAsBytes(any(GetObjectRequest::class.java)))
+            .thenReturn(ResponseBytes.fromByteArray(GetObjectResponse.builder().contentType("application/json").eTag("\"e\"").build(), """{"1":{}}""".toByteArray()))
+            .thenThrow(S3Exception.builder().statusCode(404).message("Not Found").build() as S3Exception)
+        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
+            .thenReturn(PutObjectResponse.builder().eTag("\"w\"").build())
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java)))
+            .thenReturn(HeadObjectResponse.builder().build())
+            .thenThrow(S3Exception.builder().statusCode(404).message("Not Found").build() as S3Exception)
+
+        mockMvc.perform(get("/api/aws/files/content").param("key", "uploads/sam/state/devices.json")).andReturn().dispatched()
+            .andExpect(status().isOk)
+            .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/json"))
+            .andExpect(header().string(HttpHeaders.ETAG, "\"e\""))
+            .andExpect(content().string("""{"1":{}}"""))
+        mockMvc.perform(get("/api/aws/files/content").param("key", "uploads/sam/state/missing.json")).andReturn().dispatched()
+            .andExpect(status().isNotFound)
+        mockMvc.perform(get("/api/aws/files/content").param("key", "releases/amie.dmg")).andReturn().dispatched()
+            .andExpect(status().isBadRequest)
+
+        mockMvc.perform(put("/api/aws/files/content").param("key", "uploads/sam/state/devices.json").param("contentType", "application/json")
+            .contentType(MediaType.APPLICATION_OCTET_STREAM).content("{}".toByteArray())).andReturn().dispatched()
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.key").value("uploads/sam/state/devices.json"))
+            .andExpect(jsonPath("$.eTag").value("\"w\""))
+        verify(jarService, never()).invalidate()
+
+        mockMvc.perform(delete("/api/aws/files/content").param("key", "uploads/sam/jar/echo.jar")).andReturn().dispatched()
+            .andExpect(status().isNoContent)
+        verify(jarService).invalidate()
+        mockMvc.perform(delete("/api/aws/files/content").param("key", "uploads/sam/jar/echo.jar")).andReturn().dispatched()
+            .andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `meta describes an object without downloading it`() {
+        `when`(s3Client.headObject(any(HeadObjectRequest::class.java)))
+            .thenReturn(HeadObjectResponse.builder().contentLength(42L).eTag("\"m\"").contentType("application/java-archive").build())
+            .thenThrow(S3Exception.builder().statusCode(404).message("Not Found").build() as S3Exception)
+
+        mockMvc.perform(get("/api/aws/files/meta").param("key", "uploads/sam/jar/echo.jar")).andReturn().dispatched()
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.name").value("echo.jar"))
+            .andExpect(jsonPath("$.size").value(42))
+            .andExpect(jsonPath("$.eTag").value("\"m\""))
+            .andExpect(jsonPath("$.downloadUrl").value("http://localhost:8088/api/aws/files/content?key=uploads%2Fsam%2Fjar%2Fecho.jar"))
+        mockMvc.perform(get("/api/aws/files/meta").param("key", "uploads/sam/jar/none.jar")).andReturn().dispatched()
+            .andExpect(status().isNotFound)
+        verify(s3Client, never()).getObjectAsBytes(any(GetObjectRequest::class.java))
+    }
+
+    @Test
+    fun `a jar written by key is inspected and upload-data refuses escaping names`() {
+        mockMvc.perform(put("/api/aws/files/content").param("key", "uploads/sam/jar/fake.jar")
+            .contentType(MediaType.APPLICATION_OCTET_STREAM).content("nope".toByteArray())).andReturn().dispatched()
+            .andExpect(status().isBadRequest)
+            .andExpect(content().string("The file is not a valid jar archive"))
+
+        mockMvc.perform(post("/api/aws/upload-data").param("username", "sam").param("fileName", "../tom/x.txt")
+            .contentType(MediaType.APPLICATION_OCTET_STREAM).content("x".toByteArray())).andReturn().dispatched()
+            .andExpect(status().isBadRequest)
+
+        verify(s3Client, never()).putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java))
+    }
+
+    @Test
+    fun `upload-data files a package under its language folder with the content type`() {
+        `when`(s3Client.putObject(any(PutObjectRequest::class.java), any(RequestBody::class.java)))
+            .thenReturn(PutObjectResponse.builder().eTag("\"onnx\"").build())
+
+        mockMvc.perform(post("/api/aws/upload-data").param("username", "sam").param("fileName", "onnx/module.json").param("contentType", "application/json")
+            .contentType(MediaType.APPLICATION_OCTET_STREAM).content("{}".toByteArray())).andReturn().dispatched()
+            .andExpect(status().isOk)
 
         val request = ArgumentCaptor.forClass(PutObjectRequest::class.java)
         verify(s3Client).putObject(request.capture(), any(RequestBody::class.java))
-        assertEquals("uploads/sam/errors.md", request.value.key())
+        assertEquals("uploads/sam/onnx/module.json", request.value.key())
+        assertEquals("application/json", request.value.contentType())
+    }
+
+    @Test
+    fun `states are listed by name`() {
+        val paginator = mock(ListObjectsV2Iterable::class.java)
+        @Suppress("UNCHECKED_CAST")
+        val contents = mock(SdkIterable::class.java) as SdkIterable<S3Object>
+        `when`(contents.iterator()).thenAnswer {
+            mutableListOf(S3Object.builder().key("uploads/sam/state/devices.json").build(), S3Object.builder().key("uploads/sam/state/errors.jsonl").build()).iterator()
+        }
+        `when`(paginator.contents()).thenReturn(contents)
+        `when`(s3Client.listObjectsV2Paginator(any(ListObjectsV2Request::class.java))).thenReturn(paginator)
+
+        mockMvc.perform(get("/api/aws/users/sam/states")).andReturn().dispatched()
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$[0]").value("devices"))
+            .andExpect(jsonPath("$.length()").value(1))
     }
 
     @Test

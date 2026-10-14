@@ -1,4 +1,4 @@
-package org.example.amiepackagerepository.shared.integration.github.dto
+package org.example.amiepackagerepository.shared.transactionalMiddleware.dto
 
 import kotlinx.serialization.Serializable
 import org.example.amiepackagerepository.shared.transactionalMiddleware.enumerables.DeviceActions

@@ -56,7 +56,7 @@ fun AdminPage() {
             jars = runCatching { jwtJson.decodeFromString(ListSerializer(JarInfo.serializer()), jarText) }.getOrDefault(emptyList())
 
             val found = mutableListOf<StoredPackage>()
-            val rootText = Http.get(AmieConfig.api("list-github?refresh=1")).takeIf { it.ok }?.text ?: "[]"
+            val rootText = Http.get(AmieConfig.api("packages?refresh=1")).takeIf { it.ok }?.text ?: "[]"
             val root = JSON.parse<dynamic>(rootText)
             val items: List<Json> = if (js("Array.isArray(root)") as Boolean) root.unsafeCast<Array<Json>>().toList() else emptyList()
             for (item in items) {

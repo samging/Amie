@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileUpdateDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.entities.UserActivity
+import org.example.amiepackagerepository.shared.transactionalMiddleware.repository.DeviceStatusRepository
 import org.example.amiepackagerepository.shared.transactionalMiddleware.repository.UserActivityRepository
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.entities.RestUserEntity
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.keycloak.KeycloakTokenVerifier
@@ -11,6 +12,7 @@ import org.example.amiepackagerepository.shared.transactionalMiddleware.service.
 import org.slf4j.LoggerFactory
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
 import java.util.Date
 import javax.crypto.SecretKey
@@ -25,7 +27,8 @@ import javax.crypto.SecretKey
 class UserService(
     private val restUserRepository: RestUserRepository,
     private val userActivityRepository: UserActivityRepository,
-    private val keycloakTokenVerifier: KeycloakTokenVerifier
+    private val keycloakTokenVerifier: KeycloakTokenVerifier,
+    private val deviceStatusRepository: DeviceStatusRepository
 ) {
     private val passwordEncoder = BCryptPasswordEncoder()
     private val log = LoggerFactory.getLogger(UserService::class.java)
@@ -63,9 +66,13 @@ class UserService(
      * @param username The username of the account to delete.
      * @param password The raw password to verify against the stored hash.
      */
+    @Transactional
     fun deleteUser(username: String, password: String) {
         restUserRepository.findByUsername(username)?.let { user ->
             if (passwordEncoder.matches(password, user.password)) {
+                // Rows that point at the user go first, or Postgres refuses the delete
+                deviceStatusRepository.deleteAll(deviceStatusRepository.findByUser(user))
+                userActivityRepository.deleteAll(userActivityRepository.findByUserUsername(username))
                 restUserRepository.delete(user)
             } else {
                 log.debug("Password did not match for user: {}", username)
