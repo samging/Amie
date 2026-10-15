@@ -172,7 +172,7 @@ object AuthClient {
         }
         val check = runCatching {
             ClientCache.cached("me:${session.accessToken.takeLast(24)}", ClientCache.MINUTE) {
-                Http.get(AmieConfig.backend("dashboard"), Http.bearer(session.accessToken), noStore = true).status.toString()
+                Http.get(AmieConfig.api("session"), Http.bearer(session.accessToken), noStore = true).status.toString()
             }
         }.getOrNull()
         if (check == "401") {

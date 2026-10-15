@@ -121,14 +121,12 @@ fun DownloadsPage() {
         when {
             loading && jars.isEmpty() -> SkeletonRows(rows = 2, label = "Loading downloads…")
             applications.isEmpty() -> Card(Modifier.margin(bottom = 2.cssRem).display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(1.cssRem).flexWrap(FlexWrap.Wrap)) {
-                Mascot(variant = 1, size = 120)
                 Div {
                     Div(Modifier.fontSize(12.px).margin(bottom = 0.5.cssRem).toAttrs()) { Text("No application build has been published yet") }
                     MutedText("Builds for macOS, Windows and Linux appear here as soon as one is published.")
                 }
             }
             else -> Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.8.cssRem).alignItems(AlignItems.Center).margin(bottom = 2.cssRem).toAttrs()) {
-                Mascot(variant = 2, size = 130)
                 for (app in applications) {
                     val forYou = Platform.recommends(app.name)
                     Card(

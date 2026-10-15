@@ -202,7 +202,6 @@ fun Loginpage() {
 
             // QR
             Card(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).alignItems(AlignItems.Center).gap(0.8.cssRem)) {
-                Mascot(variant = 1, size = 110)
                 H2(Modifier.fontSize(13.px).margin(0.px).toAttrs()) { Text("Sign in with your phone") }
                 val current = device
                 when {

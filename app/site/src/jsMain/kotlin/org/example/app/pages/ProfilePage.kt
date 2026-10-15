@@ -75,7 +75,7 @@ fun ProfilePage() {
         username = user
         try {
             val json = ClientCache.cached("profile:$user", 5 * ClientCache.MINUTE) {
-                val result = Http.get(AmieConfig.backend("profile?username=${encodeURIComponent(user)}"))
+                val result = Http.get(AmieConfig.api("profile?username=${encodeURIComponent(user)}"), Http.bearer(AuthClient.accessToken()), noStore = true)
                 if (!result.ok) throw IllegalStateException()
                 result.text
             }
@@ -99,7 +99,7 @@ fun ProfilePage() {
             try {
                 val token = AuthClient.accessToken()
                 val body = """{"fullName":${JSON.stringify(fullName)},"email":${JSON.stringify(email)},"bio":${JSON.stringify(bio)}}"""
-                val result = Http.postJson(AmieConfig.backend("profile?username=${encodeURIComponent(user)}"), body, Http.bearer(token))
+                val result = Http.postJson(AmieConfig.api("profile?username=${encodeURIComponent(user)}"), body, Http.bearer(token))
                 if (result.ok) {
                     ClientCache.put("profile:$user", body, 5 * ClientCache.MINUTE)
                     saved = Triple(fullName, email, bio)
@@ -107,7 +107,12 @@ fun ProfilePage() {
                     noticeKind = BannerKind.SUCCESS
                     Toasts.show("Profile saved.", BannerKind.SUCCESS)
                 } else {
-                    notice = if (result.status == 401 || result.status == 403) "Please sign in again to change your profile." else "The profile could not be saved."
+                    notice = when (result.status) {
+                        401 -> "Your session has ended. Sign in again to change your profile."
+                        403 -> "Only you can change your own profile."
+                        400 -> "The profile could not be saved: check the email address."
+                        else -> "The profile could not be saved right now. Please try again in a moment."
+                    }
                     noticeKind = BannerKind.ERROR
                 }
             } catch (e: Throwable) {

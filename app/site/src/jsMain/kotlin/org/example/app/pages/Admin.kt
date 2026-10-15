@@ -156,7 +156,6 @@ fun AdminPage() {
         when (state) {
             "checking" -> SkeletonRows(rows = 3, label = "Checking your access…")
             "denied" -> Card(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(1.cssRem).flexWrap(FlexWrap.Wrap)) {
-                Mascot(variant = 1, size = 120)
                 Div {
                     Div(Modifier.fontSize(12.px).margin(bottom = 0.5.cssRem).toAttrs()) { Text("This page is for administrators") }
                     MutedText("Sign in with an account that has the admin role.")

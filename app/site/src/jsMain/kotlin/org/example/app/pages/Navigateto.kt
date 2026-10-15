@@ -99,7 +99,7 @@ fun Navigateto() {
             form.append("file", file)
             form.append("username", owner)
             form.append("progLanguage", "jar")
-            val result = Http.upload(AmieConfig.backend("upload"), form, Http.bearer(token)) { progress = it }
+            val result = Http.upload(AmieConfig.api("upload"), form, Http.bearer(token)) { progress = it }
             when {
                 result.ok -> {
                     progress = 1.0

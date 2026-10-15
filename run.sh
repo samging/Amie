@@ -159,8 +159,7 @@ case $command in
     echo
     print_status
     if [[ $AMIE_BACKEND_PORT != 8080 ]]; then
-      echo "Note: the backend is on $AMIE_BACKEND_PORT. The site's /api proxies know; for direct browser calls run"
-      echo "  localStorage.setItem(\"amie.backendUrl\", \"http://localhost:$AMIE_BACKEND_PORT\") in the console, and point"
-      echo "  the desktop app at it (AMIE_BACKEND_URL or baseUrl in its AMP/backend.json)."
+      echo "Note: the backend is on $AMIE_BACKEND_PORT. The website goes through its own /api proxies and knows;"
+      echo "  point the desktop app at it (AMIE_BACKEND_URL or baseUrl in its AMP/backend.json)."
     fi ;;
 esac

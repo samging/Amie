@@ -2,144 +2,174 @@ package org.example.app.components.sections
 
 import androidx.compose.runtime.Composable
 import com.varabyte.kobweb.compose.css.AnimationIterationCount
-import com.varabyte.kobweb.compose.css.functions.radialGradient
+import com.varabyte.kobweb.compose.css.Overflow
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.graphics.Color
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.styleModifier
-import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.silk.style.CssStyle
 import com.varabyte.kobweb.silk.style.animation.Keyframes
 import com.varabyte.kobweb.silk.style.animation.toAnimation
+import com.varabyte.kobweb.silk.style.base
 import com.varabyte.kobweb.silk.style.toAttrs
-import com.varabyte.kobweb.silk.style.toModifier
-import com.varabyte.kobweb.silk.theme.colors.ColorMode
+import org.example.app.config.encodeURIComponent
 import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.Div
 
-val DriftA = Keyframes {
-    from { Modifier.translate(0.px, 0.px).scale(1.0) }
-    33.percent { Modifier.translate(120.px, (-60).px).scale(1.15) }
-    66.percent { Modifier.translate((-60).px, 90.px).scale(0.95) }
-    to { Modifier.translate(0.px, 0.px).scale(1.0) }
-}
+/*
+ * A quiet pixel night behind every page: black, with two layers of small square stars that drift very slowly
+ * and twinkle a little, a floor grid so faint it only reads as texture, and a shooting star once in a while.
+ * Drawn with CSS and two tiny inline SVG tiles, so nothing is downloaded, and it stands still for people who
+ * prefer reduced motion.
+ */
 
-val DriftB = Keyframes {
-    from { Modifier.translate(0.px, 0.px).scale(1.0) }
-    40.percent { Modifier.translate((-140).px, 70.px).scale(1.1) }
-    70.percent { Modifier.translate(80.px, (-80).px).scale(0.9) }
-    to { Modifier.translate(0.px, 0.px).scale(1.0) }
-}
-
-val Aurora = Keyframes {
-    from { Modifier.styleModifier { property("background-position", "0% 50%") } }
-    50.percent { Modifier.styleModifier { property("background-position", "100% 50%") } }
-    to { Modifier.styleModifier { property("background-position", "0% 50%") } }
-}
-
-val AuroraStyle = CssStyle {
-    base {
-        Modifier
-            .position(Position.Absolute)
-            .top(0.px).left(0.px)
-            .width(100.percent).height(100.percent)
-            .styleModifier {
-                property("background", "linear-gradient(120deg, rgba(47,125,225,0.16), rgba(201,106,158,0.12), rgba(243,219,91,0.08), rgba(47,125,225,0.16))")
-                property("background-size", "300% 300%")
-            }
-            .animation(Aurora.toAnimation(duration = 24.s, timingFunction = AnimationTimingFunction.EaseInOut, iterationCount = AnimationIterationCount.Infinite))
-    }
-    cssRule(CSSMediaQuery.MediaFeature("prefers-reduced-motion", StylePropertyValue("reduce"))) {
-        Modifier.styleModifier { property("animation", "none") }
+/** A small deterministic generator, so every visit draws the same sky. */
+private class Dice(seed: Int) {
+    private var state = seed
+    fun next(bound: Int): Int {
+        state = (state * 1103515245 + 12345) and 0x7fffffff
+        return (state shr 8) % bound
     }
 }
 
-val Twinkle = Keyframes {
-    from { Modifier.opacity(0.25) }
+private fun svgUrl(svg: String): String = "url(\"data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}\")"
+
+private fun Double.fixed(digits: Int): String = asDynamic().toFixed(digits) as String
+
+/** A square tile of [count] pixel stars, [pixel] px each, that repeats without a seam. */
+private fun starTile(seed: Int, size: Int, count: Int, pixel: Int, colors: List<String>): String {
+    val dice = Dice(seed)
+    val cells = size / pixel
+    val rects = StringBuilder()
+    repeat(count) {
+        val x = dice.next(cells) * pixel
+        val y = dice.next(cells) * pixel
+        val color = colors[dice.next(colors.size)]
+        val opacity = 0.35 + dice.next(55) / 100.0
+        rects.append("<rect x='$x' y='$y' width='$pixel' height='$pixel' fill='$color' fill-opacity='${opacity.fixed(2)}'/>")
+    }
+    return svgUrl("<svg xmlns='http://www.w3.org/2000/svg' width='$size' height='$size' shape-rendering='crispEdges'>$rects</svg>")
+}
+
+private const val FAR_TILE = 360
+private const val NEAR_TILE = 520
+
+private val STAR_COLORS = listOf("#FFFFFF", "#FFFFFF", "#DCE8FF", "#F3E4FF")
+private val FAR_STARS = starTile(7, FAR_TILE, 34, 2, STAR_COLORS)
+private val NEAR_STARS = starTile(99, NEAR_TILE, 10, 3, STAR_COLORS)
+
+private val reducedMotion = CSSMediaQuery.MediaFeature("prefers-reduced-motion", StylePropertyValue("reduce"))
+
+val PixelDriftFar = Keyframes {
+    from { Modifier.translate(0.px, 0.px) }
+    to { Modifier.translate(FAR_TILE.px, FAR_TILE.px) }
+}
+
+val PixelDriftNear = Keyframes {
+    from { Modifier.translate(0.px, 0.px) }
+    to { Modifier.translate(NEAR_TILE.px, NEAR_TILE.px) }
+}
+
+val PixelTwinkle = Keyframes {
+    from { Modifier.opacity(0.35) }
     50.percent { Modifier.opacity(0.7) }
-    to { Modifier.opacity(0.25) }
+    to { Modifier.opacity(0.35) }
 }
 
-val BackdropStyle = CssStyle {
-    base {
-        Modifier
-            .position(Position.Fixed)
-            .top(0.px).left(0.px)
-            .width(100.vw).height(100.vh)
-            .zIndex(-1)
-            .backgroundColor(Color.rgb(0x0A0A0A))
-            .overflow(com.varabyte.kobweb.compose.css.Overflow.Hidden)
-            .styleModifier { property("pointer-events", "none") }
-    }
+val PixelGridScroll = Keyframes {
+    from { Modifier.styleModifier { property("background-position", "0 0, 0 0") } }
+    to { Modifier.styleModifier { property("background-position", "0 48px, 0 0") } }
 }
 
-val BlobStyle = CssStyle {
-    base {
-        Modifier
-            .position(Position.Absolute)
-            .borderRadius(50.percent)
-            .styleModifier { property("filter", "blur(70px)") }
-            .styleModifier { property("will-change", "transform") }
-    }
-    cssRule(CSSMediaQuery.MediaFeature("prefers-reduced-motion", StylePropertyValue("reduce"))) {
-        Modifier.styleModifier { property("animation", "none") }
-    }
+val PixelShootingStar = Keyframes {
+    from { Modifier.opacity(0).transform { translate(0.px, 0.px); rotate(27.deg) } }
+    2.percent { Modifier.opacity(0.55).transform { translate(3.vw, 1.5.vh); rotate(27.deg) } }
+    10.percent { Modifier.opacity(0).transform { translate(40.vw, 20.vh); rotate(27.deg) } }
+    to { Modifier.opacity(0).transform { translate(40.vw, 20.vh); rotate(27.deg) } }
 }
 
-val StarsStyle = CssStyle {
+val PixelBackdropStyle = CssStyle.base {
+    Modifier
+        .position(Position.Fixed).top(0.px).left(0.px)
+        .width(100.vw).height(100.vh)
+        .zIndex(-1)
+        .backgroundColor(Color.rgb(0x0A0A0A))
+        .overflow(Overflow.Hidden)
+        .styleModifier { property("pointer-events", "none") }
+}
+
+private fun Modifier.tileLayer(tile: Int, image: String): Modifier = this
+    .position(Position.Absolute).top((-tile).px).left((-tile).px)
+    .styleModifier {
+        property("width", "calc(100% + ${tile}px)")
+        property("height", "calc(100% + ${tile}px)")
+        property("background-image", image)
+        property("background-size", "${tile}px ${tile}px")
+        property("background-repeat", "repeat")
+        property("image-rendering", "pixelated")
+        property("will-change", "transform")
+    }
+
+val PixelStarsFarStyle = CssStyle {
     base {
-        Modifier
-            .position(Position.Absolute)
-            .top(0.px).left(0.px)
-            .width(100.percent).height(100.percent)
+        Modifier.tileLayer(FAR_TILE, FAR_STARS).opacity(0.4)
+            .animation(PixelDriftFar.toAnimation(duration = 240.s, timingFunction = AnimationTimingFunction.Linear, iterationCount = AnimationIterationCount.Infinite))
+    }
+    cssRule(reducedMotion) { Modifier.styleModifier { property("animation", "none") } }
+}
+
+val PixelStarsNearStyle = CssStyle {
+    base {
+        Modifier.tileLayer(NEAR_TILE, NEAR_STARS)
+            .animation(PixelDriftNear.toAnimation(duration = 160.s, timingFunction = AnimationTimingFunction.Linear, iterationCount = AnimationIterationCount.Infinite))
+    }
+    cssRule(reducedMotion) { Modifier.styleModifier { property("animation", "none") } }
+}
+
+val PixelTwinkleStyle = CssStyle {
+    base {
+        Modifier.position(Position.Absolute).top(0.px).left(0.px).width(100.percent).height(100.percent)
+            .animation(PixelTwinkle.toAnimation(duration = 7.s, timingFunction = AnimationTimingFunction.EaseInOut, iterationCount = AnimationIterationCount.Infinite))
+    }
+    cssRule(reducedMotion) { Modifier.styleModifier { property("animation", "none") } }
+}
+
+/** The floor: a grid so faint it is texture rather than a picture, rolling slowly toward the viewer. */
+val PixelGridStyle = CssStyle {
+    base {
+        Modifier.position(Position.Absolute).left((-50).percent).bottom((-6).vh).width(200.percent).height(46.vh).opacity(0.11)
             .styleModifier {
-                property(
-                    "background-image",
-                    "radial-gradient(circle at 12% 18%, rgba(255,255,255,0.35) 0 1.2px, transparent 2px)," +
-                        "radial-gradient(circle at 70% 30%, rgba(255,255,255,0.3) 0 1px, transparent 2px)," +
-                        "radial-gradient(circle at 40% 75%, rgba(255,255,255,0.3) 0 1.4px, transparent 2px)," +
-                        "radial-gradient(circle at 85% 80%, rgba(255,255,255,0.25) 0 1px, transparent 2px)," +
-                        "radial-gradient(circle at 25% 50%, rgba(255,255,255,0.3) 0 1px, transparent 2px)," +
-                        "radial-gradient(circle at 55% 10%, rgba(255,255,255,0.25) 0 1.2px, transparent 2px)," +
-                        "radial-gradient(circle at 92% 45%, rgba(255,255,255,0.3) 0 1px, transparent 2px)"
-                )
-                property("background-size", "900px 700px")
+                property("background-image", "linear-gradient(rgba(200,190,255,0.8) 2px, rgba(0,0,0,0) 2px), linear-gradient(90deg, rgba(200,190,255,0.8) 2px, rgba(0,0,0,0) 2px)")
+                property("background-size", "80px 48px, 80px 48px")
+                property("transform-origin", "50% 100%")
+                property("transform", "perspective(520px) rotateX(62deg)")
+                property("mask-image", "linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 45%, #000 100%)")
+                property("-webkit-mask-image", "linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 45%, #000 100%)")
             }
-            .animation(Twinkle.toAnimation(duration = 6.s, timingFunction = AnimationTimingFunction.EaseInOut, iterationCount = AnimationIterationCount.Infinite))
+            .animation(PixelGridScroll.toAnimation(duration = 6.s, timingFunction = AnimationTimingFunction.Linear, iterationCount = AnimationIterationCount.Infinite))
     }
-    cssRule(CSSMediaQuery.MediaFeature("prefers-reduced-motion", StylePropertyValue("reduce"))) {
-        Modifier.styleModifier { property("animation", "none") }
-    }
+    cssRule(reducedMotion) { Modifier.styleModifier { property("animation", "none") } }
 }
 
-/** Soft drifting color blobs and faint stars behind every page; still on reduced-motion devices. */
+val PixelShootingStarStyle = CssStyle {
+    base {
+        Modifier.position(Position.Absolute).top(10.vh).left(8.vw).width(90.px).height(2.px).opacity(0)
+            .styleModifier {
+                property("background", "linear-gradient(90deg, rgba(255,255,255,0) 0 30%, rgba(255,255,255,0.3) 30% 60%, rgba(255,255,255,0.9) 60% 100%)")
+                property("transform-origin", "100% 50%")
+            }
+            .animation(PixelShootingStar.toAnimation(duration = 26.s, timingFunction = AnimationTimingFunction.Linear, iterationCount = AnimationIterationCount.Infinite))
+    }
+    cssRule(reducedMotion) { Modifier.styleModifier { property("animation", "none") } }
+}
+
+/** The quiet pixel night behind every page; see the note at the top of this file. */
 @Composable
 fun AnimatedBackground() {
-    val dark = ColorMode.current.isDark
-    val alpha = if (dark) 0.28f else 0.18f
-    Div(BackdropStyle.toAttrs()) {
-        Div(AuroraStyle.toAttrs())
-        if (dark) Div(StarsStyle.toAttrs())
-        Div(
-            BlobStyle.toModifier()
-                .top((-10).percent).left((-10).percent).size(42.vw)
-                .backgroundColor(Color.rgb(0x2F7DE1).toRgb().copyf(alpha = alpha))
-                .animation(DriftA.toAnimation(duration = 26.s, timingFunction = AnimationTimingFunction.EaseInOut, iterationCount = AnimationIterationCount.Infinite))
-                .toAttrs()
-        )
-        Div(
-            BlobStyle.toModifier()
-                .top(30.percent).right((-12).percent).size(38.vw)
-                .backgroundColor(Color.rgb(0xC96A9E).toRgb().copyf(alpha = alpha))
-                .animation(DriftB.toAnimation(duration = 32.s, timingFunction = AnimationTimingFunction.EaseInOut, iterationCount = AnimationIterationCount.Infinite))
-                .toAttrs()
-        )
-        Div(
-            BlobStyle.toModifier()
-                .bottom((-15).percent).left(25.percent).size(36.vw)
-                .backgroundColor(Color.rgb(0xF3DB5B).toRgb().copyf(alpha = alpha * 0.7f))
-                .animation(DriftA.toAnimation(duration = 38.s, timingFunction = AnimationTimingFunction.EaseInOut, iterationCount = AnimationIterationCount.Infinite, direction = AnimationDirection.Reverse))
-                .toAttrs()
-        )
+    Div(PixelBackdropStyle.toAttrs { attr("aria-hidden", "true") }) {
+        Div(PixelStarsFarStyle.toAttrs())
+        Div(PixelTwinkleStyle.toAttrs()) { Div(PixelStarsNearStyle.toAttrs()) }
+        Div(PixelGridStyle.toAttrs())
+        Div(PixelShootingStarStyle.toAttrs())
     }
 }

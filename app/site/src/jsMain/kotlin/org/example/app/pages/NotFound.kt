@@ -49,7 +49,6 @@ fun ErrorPage(code: Int) {
 
     PageLayout(if (code == 404) "Page not found" else "Error $code") {
         Div(Modifier.fillMaxWidth().display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).alignItems(AlignItems.Center).gap(2.cssRem).toAttrs()) {
-            Mascot(variant = 1, size = 150)
             Div(Modifier.flexGrow(1).minWidth(16.cssRem).maxWidth(36.cssRem).toAttrs()) {
                 PageHeading(
                     if (code == 404) "There is nothing at this address" else "Something went wrong",

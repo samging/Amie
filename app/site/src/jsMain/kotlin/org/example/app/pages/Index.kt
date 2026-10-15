@@ -171,7 +171,6 @@ fun IndexPage() {
                 else LinkButton("Sign in to upload", "/loginpage", primary = false)
             }
           }
-          Mascot(variant = 0, size = 200)
         }
 
         // The store at a glance

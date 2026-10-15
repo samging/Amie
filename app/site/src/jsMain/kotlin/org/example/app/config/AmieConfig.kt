@@ -3,17 +3,20 @@ package org.example.app.config
 import kotlinx.browser.window
 
 /**
- * Where the website finds the Amie backend and Keycloak.
+ * Where the website finds Keycloak and the S3 service.
+ *
+ * Everything the pages need from the Amie backend (listings, files, the profile, uploads, the session check)
+ * goes through this site's own server (`/api/...`), which knows the backend's address (`AMIE_BACKEND_URL`),
+ * caches answers and keeps the browser on one origin. Keycloak is reached from the browser for the hosted
+ * sign-in pages and the realm's keys; large application builds stream straight from the S3 service.
  *
  * Both default to the host the page was loaded from (so the site works on localhost and on a LAN address
  * without edits). To point them elsewhere, set these keys in the browser's localStorage, for example from the
- * console: `localStorage.setItem("amie.backendUrl", "http://192.168.1.50:8090")`.
+ * console: `localStorage.setItem("amie.keycloakUrl", "http://192.168.1.50:8080")`.
  *
- * - `amie.backendUrl`: the Spring Boot packageRepository (default `http://<host>:8080`)
  * - `amie.keycloakUrl`: the Keycloak server (default `http://<host>:8080`)
- *
- * Jar downloads and package listings go through this site's own server (`/api/...`), which talks to the
- * S3 service and the backend itself and caches their answers.
+ * - `amie.s3ServiceUrl`: the S3 service for large downloads (default `http://<host>:8088`)
+ * - `amie.backendUrl`: kept for scripts that call the backend from the console (default `http://<host>:8080`)
  */
 object AmieConfig {
     private fun saved(key: String): String? =

@@ -85,8 +85,8 @@ fun EditPage() {
                 form.append("file", file)
                 form.append("filename", fileName)
                 form.append("username", username)
-                val result = Http.upload(AmieConfig.backend("edit"), form, Http.bearer(token)) { progress = it }
-                if (result.ok && !result.text.startsWith("Error", ignoreCase = true)) {
+                val result = Http.upload(AmieConfig.api("edit"), form, Http.bearer(token)) { progress = it }
+                if (result.ok) {
                     ClientCache.removePrefix("packages:")
                     ClientCache.remove("jars:list")
                     runCatching { Http.get(AmieConfig.api("repo-by-username?username=${encodeURIComponent(username)}&refresh=1")) }
@@ -97,6 +97,7 @@ fun EditPage() {
                 } else {
                     notice = when {
                         result.status == 401 || result.status == 403 -> "Please sign in again to update packages."
+                        result.status == 400 -> "The new file was not accepted" + (result.text.takeIf { it.isNotBlank() && !it.startsWith("{") }?.let { ": $it" } ?: ".")
                         result.status == 0 -> "The upload was interrupted. Check the connection and try again."
                         else -> "The update did not go through."
                     }

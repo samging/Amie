@@ -31,10 +31,10 @@ The script needs, and checks for, before it starts anything:
 - **Postgres** on `localhost:5432` with the database `AmiesUsersDB` (`packageRepository/src/main/resources/application.properties`),
   for the backend's `users` table.
 - **Keycloak** on `http://localhost:8080` (a warning only; without it nobody can sign in). When Keycloak holds 8080 the
-  backend takes **8090** and the site is told (`AMIE_BACKEND_URL`). The browser-side config and the desktop app
-  default to port 8080 for the backend, so on such a machine set `localStorage.setItem("amie.backendUrl",
-  "http://<host>:8090")` in the browser and `AMIE_BACKEND_URL=http://<host>:8090` (or `baseUrl` in `AMP/backend.json`)
-  for the desktop app.
+  backend takes **8090** and the site is told (`AMIE_BACKEND_URL`). The website's pages only ever call the site's own
+  server (`/api/...`), which forwards to the backend, so the browser needs no setting. The desktop app defaults to port
+  8080 for the backend, so on such a machine give it `AMIE_BACKEND_URL=http://<host>:8090` (or `baseUrl` in
+  `AMP/backend.json`).
 
 When the machine's LAN address changes (DHCP), two things go stale: the Keycloak `amie` client only redirects back
 to the origins it knows, so the browser sign-in from the new address fails with "Invalid parameter: redirect_uri",
@@ -138,7 +138,9 @@ The S3 bucket behind the awsS3 service is the only store. Package files live at 
 a user's device state at `uploads/<user>/state/devices.json` and the errors the desktop app reports at
 `uploads/<user>/state/errors.jsonl`. The site proxies the backend for all of it: `/api/packages` (the listing),
 `/api/all-packages` (every author's files merged into one list, which the store page and the search use),
-`/api/view?package=`, `/api/delete-package`, and `GET /api/errors?username=` with the owner's
+`/api/upload` and `/api/edit` (multipart uploads passed on with the bearer), `/api/profile` (read and save; a
+single sign-on account's backend row is created on first use through the backend's `/me`), `/api/session` (is
+the token still good), `/api/view?package=`, `/api/delete-package`, and `GET /api/errors?username=` with the owner's
 `Authorization: Bearer` header, which the dashboard shows under "Errors from your app"
 (`POST /api/errors-clear?username=` empties the log).
 
