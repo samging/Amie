@@ -29,9 +29,11 @@ import com.varabyte.kobweb.silk.theme.colors.palette.background
 import com.varabyte.kobweb.silk.theme.colors.palette.color
 import com.varabyte.kobweb.silk.theme.colors.palette.toPalette
 import org.example.app.toSitePalette
+import org.jetbrains.compose.web.attributes.AttrsScope
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.placeholder
 import org.jetbrains.compose.web.attributes.value
+import org.w3c.dom.HTMLInputElement
 import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.A
 import org.jetbrains.compose.web.dom.Div
@@ -211,13 +213,15 @@ fun TextField(
     placeholder: String = "",
     type: InputType<String> = InputType.Text,
     modifier: Modifier = Modifier,
-    onEnter: (() -> Unit)? = null
+    onEnter: (() -> Unit)? = null,
+    attrs: (AttrsScope<HTMLInputElement>.() -> Unit)? = null
 ) {
     Input(type, attrs = TextInputStyle.toModifier().then(modifier).toAttrs {
         placeholder(placeholder)
         value(value)
         onInput { onValueChange(it.value) }
         if (onEnter != null) onKeyDown { if (it.key == "Enter") onEnter() }
+        attrs?.invoke(this)
     })
 }
 

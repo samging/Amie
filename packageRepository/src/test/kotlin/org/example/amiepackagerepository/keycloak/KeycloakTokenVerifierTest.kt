@@ -10,6 +10,7 @@ import java.net.http.HttpResponse
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Runs against a live Keycloak when KEYCLOAK_TEST_USER / KEYCLOAK_TEST_PASSWORD / KEYCLOAK_CLIENT_SECRET are set,
@@ -17,8 +18,14 @@ import kotlin.test.assertNull
  */
 class KeycloakTokenVerifierTest {
     private val base = System.getenv("KEYCLOAK_URL") ?: "http://localhost:8080"
-    private val issuer = System.getenv("KEYCLOAK_ISSUER") ?: "http://192.168.1.114:8080/realms/master"
-    private val verifier = KeycloakTokenVerifier(issuer, "$base/realms/master/protocol/openid-connect/certs")
+    private val issuer = System.getenv("KEYCLOAK_ISSUER") ?: "$base/realms/master"
+    private val verifier = KeycloakTokenVerifier("$issuer, http://127.0.0.1:8080/realms/master/", "$base/realms/master/protocol/openid-connect/certs")
+
+    @Test
+    fun `the issuer list is split and trimmed`() {
+        assertEquals(setOf(issuer, "http://127.0.0.1:8080/realms/master"), verifier.issuers)
+        assertEquals(issuer, verifier.issuer)
+    }
 
     @Test
     fun `a backend style token is not mistaken for a Keycloak token`() {
@@ -44,7 +51,7 @@ class KeycloakTokenVerifierTest {
 
         val claims = assertNotNull(verifier.verify(token))
         assertEquals(user, claims.subject)
-        assertEquals(issuer, claims.issuer)
+        assertTrue(claims.issuer in verifier.issuers, "issuer ${claims.issuer} is not accepted")
 
         val tampered = token.dropLast(2) + "xx"
         assertNull(verifier.verify(tampered))

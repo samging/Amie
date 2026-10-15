@@ -22,10 +22,11 @@ export JAVA_HOME=${JAVA_HOME_21:-/Users/samuel/Library/Java/JavaVirtualMachines/
 export AWS_PROFILE=${AWS_PROFILE:-default}                  # the profile awsS3 reads the bucket with
 export AWS_REGION=${AWS_REGION:-eu-north-1}
 export KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8080}  # Keycloak (Docker), used by the site server
-# The realm has no fixed frontend URL, so the issuer in its tokens is the address the browser used for Keycloak:
-# this machine's LAN address when the site is opened from the LAN. Set KEYCLOAK_ISSUER to pin another one.
+# The realm has no fixed frontend URL, so the issuer in its tokens is the address the client used for Keycloak:
+# localhost for the desktop app and the site server, this machine's LAN address for a browser on the LAN. The
+# backend accepts every issuer in this comma-separated list; set KEYCLOAK_ISSUER to pin other ones.
 lan_ip() { ipconfig getifaddr en0 2>/dev/null || ifconfig | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}'; }
-export KEYCLOAK_ISSUER=${KEYCLOAK_ISSUER:-http://$(lan_ip):8080/realms/master}
+export KEYCLOAK_ISSUER=${KEYCLOAK_ISSUER:-http://localhost:8080/realms/master,http://127.0.0.1:8080/realms/master,http://$(lan_ip):8080/realms/master}
 export KEYCLOAK_JWKS_URI=${KEYCLOAK_JWKS_URI:-$KEYCLOAK_URL/realms/master/protocol/openid-connect/certs}
 # The site server exchanges passwords, codes and device codes for tokens with the confidential `amie` client, so it
 # needs the client's secret; without it every sign-in on the site fails (Keycloak: invalid_client_credentials).
@@ -133,7 +134,7 @@ print_status() {
   local lan; lan=$(lan_ip)
   [[ -n $lan ]] && echo "From the LAN (this address changes with DHCP): http://$lan:$AMIE_SITE_PORT/  backend http://$lan:$AMIE_BACKEND_PORT  s3 http://$lan:$AMIE_S3_PORT"
   echo "Client secret for the site's sign-in: $([[ -n $KEYCLOAK_CLIENT_SECRET ]] && echo set || echo MISSING)"
-  echo "Token issuer the backend accepts: $KEYCLOAK_ISSUER (after an address change run scripts/keycloak-allow-origin.sh and restart the backend)"
+  echo "Token issuers the backend accepts: $KEYCLOAK_ISSUER (after an address change run scripts/keycloak-allow-origin.sh and restart the backend)"
 }
 
 # ---- commands ------------------------------------------------------------------------------------------------

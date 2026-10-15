@@ -4,16 +4,20 @@ import androidx.compose.runtime.*
 import com.varabyte.kobweb.compose.css.FontWeight
 import com.varabyte.kobweb.compose.css.WhiteSpace
 import com.varabyte.kobweb.compose.ui.Modifier
+import com.varabyte.kobweb.compose.ui.attrsModifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
+import com.varabyte.kobweb.compose.ui.styleModifier
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
 import com.varabyte.kobweb.core.rememberPageContext
 import com.varabyte.kobweb.silk.components.text.SpanText
 import com.varabyte.kobweb.silk.style.toModifier
+import kotlinx.browser.window
 import kotlinx.coroutines.launch
 import org.example.app.auth.AuthClient
 import org.example.app.components.ClientCache
 import org.example.app.components.Http
+import org.example.app.components.PackageKind
 import org.example.app.components.layouts.PageLayout
 import org.example.app.components.widgets.*
 import org.example.app.config.AmieConfig
@@ -36,6 +40,8 @@ fun Dashboard() {
     val ctx = rememberPageContext()
     val scope = rememberCoroutineScope()
     val username = ctx.route.params["username"]?.trim().orEmpty()
+    val uploaded = ctx.route.params["uploaded"]?.trim()
+    val updated = ctx.route.params["updated"]?.trim()
 
     var loggedInUser by remember { mutableStateOf<String?>(null) }
     var packages by remember { mutableStateOf<List<Json>>(emptyList()) }
@@ -44,6 +50,14 @@ fun Dashboard() {
     var loading by remember { mutableStateOf(true) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeKind by remember { mutableStateOf(BannerKind.INFO) }
+    var filter by remember { mutableStateOf("") }
+    val flash = remember {
+        when {
+            !uploaded.isNullOrEmpty() -> "$uploaded was uploaded. It is in the list below and on the downloads page."
+            !updated.isNullOrEmpty() -> "$updated was replaced with the new version."
+            else -> null
+        }
+    }
 
     suspend fun load(refresh: Boolean) {
         if (username.isEmpty()) return
@@ -77,43 +91,79 @@ fun Dashboard() {
     }
 
     LaunchedEffect(username) {
+        if (flash != null) {
+            // The confirmation is shown once; a reload should not repeat it
+            runCatching { window.history.replaceState(null, "", "/dashboard?username=${encodeURIComponent(username)}") }
+        }
         loggedInUser = AuthClient.currentUser()
-        load(refresh = false)
+        load(refresh = flash != null)
         loadErrors()
     }
 
     val isOwner = loggedInUser != null && loggedInUser == username
+    val pageUrl = window.location.origin + "/dashboard?username=${encodeURIComponent(username)}"
 
     PageLayout(if (username.isEmpty()) "Dashboard" else "$username's packages") {
         if (username.isEmpty()) {
             PageHeading("Dashboard")
-            StatusBanner("Pick an author on the packages page, or sign in to see your own packages.", BannerKind.INFO)
+            EmptyAction(
+                "Whose packages?",
+                "Pick an author on the packages page, or sign in to see your own packages, devices and app errors.",
+                action = {
+                    LinkButton("Browse the packages", "/")
+                    LinkButton("Sign in", "/loginpage?next=%2Fdashboard", primary = false)
+                }
+            )
             return@PageLayout
         }
 
-        PageHeading(if (isOwner) "Your packages" else "Packages by $username", if (isOwner) "Signed in as $username" else null) {
+        Breadcrumbs(Crumb("Packages", "/"), Crumb(username))
+        PageHeading(if (isOwner) "Your packages" else "Packages by $username", if (isOwner) "Signed in as $username" else "Everything $username published") {
             GhostButton(if (loading) "Refreshing…" else "Refresh", enabled = !loading) { scope.launch { load(refresh = true); loadErrors() } }
+            CopyButton(pageUrl, label = "Copy link", toast = "Link to this page copied.")
             if (isOwner) {
                 LinkButton("Upload a package", "/navigateto?username=${encodeURIComponent(username)}")
                 LinkButton("Profile", "/profile", primary = false)
             }
         }
 
+        StatusBanner(flash, BannerKind.SUCCESS, Modifier.margin(bottom = 1.cssRem))
         StatusBanner(notice, noticeKind, Modifier.margin(bottom = 1.cssRem))
 
-        H2(Modifier.fontSize(14.px).margin(top = 0.px, bottom = 0.8.cssRem).toAttrs()) { Text("Devices") }
+        if (!loading || packages.isNotEmpty()) {
+            val totalSize = packages.sumOf { (it["size"] as? Number)?.toDouble() ?: 0.0 }
+            val jars = packages.count { PackageKind.of(it["name"] as? String ?: "") == PackageKind.JAR }
+            StatRow {
+                StatTile("Packages", packages.size.toString(), if (jars > 0) plural(jars, "jar") + " for the app" else "none are jars")
+                StatTile("Total size", formatSize(totalSize))
+                StatTile("Devices", devices.size.toString(), if (devices.isEmpty()) "none reported yet" else "reported by the app")
+                if (isOwner) StatTile("App errors", errors.size.toString(), errors.firstOrNull()?.let { "last one " + formatRelative(it["time"] as? String) } ?: "none reported")
+            }
+        }
+
+        SectionHeading("Devices", id = "devices")
         if (devices.isEmpty()) {
-            Card(Modifier.margin(bottom = 2.cssRem)) { MutedText("No devices have reported a status.") }
+            EmptyAction(
+                "No devices have reported a status.",
+                if (isOwner) "Devices appear here once the Amie desktop app syncs them." else "$username's app has not synced a device yet.",
+                Modifier.margin(bottom = 2.cssRem),
+                action = { LinkButton("How devices work", "/docs/devices", primary = false) }
+            )
         } else {
-            Table(DataTableStyle.toModifier().margin(bottom = 2.cssRem).toAttrs()) {
-                Thead { Tr { Th { Text("Device") }; Th { Text("Name") }; Th { Text("Port") }; Th { Text("Endpoint") } } }
-                Tbody {
-                    for (device in devices) {
-                        Tr {
-                            Td { Text(device["deviceKey"] as? String ?: "–") }
-                            Td { Text(device["name"] as? String ?: "–") }
-                            Td { Text(device["port"] as? String ?: "–") }
-                            Td { Text(device["deviceEndpoint"] as? String ?: "–") }
+            TableScroll(Modifier.margin(bottom = 2.cssRem)) {
+                Table(DataTableStyle.toModifier().toAttrs()) {
+                    Thead { Tr { Th { Text("Device") }; Th { Text("Name") }; Th { Text("Port") }; Th { Text("Endpoint") } } }
+                    Tbody {
+                        for (device in devices) {
+                            Tr {
+                                Td { Text(device["deviceKey"] as? String ?: "–") }
+                                Td { Text(device["name"] as? String ?: "–") }
+                                Td { Text(device["port"] as? String ?: "–") }
+                                Td {
+                                    val endpoint = device["deviceEndpoint"] as? String
+                                    if (endpoint.isNullOrBlank()) Text("–") else Code(attrs = Modifier.fontSize(9.px).toAttrs()) { Text(endpoint) }
+                                }
+                            }
                         }
                     }
                 }
@@ -121,10 +171,9 @@ fun Dashboard() {
         }
 
         if (isOwner) {
-            Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).justifyContent(JustifyContent.SpaceBetween).margin(bottom = 0.8.cssRem).toAttrs()) {
-                H2(Modifier.fontSize(14.px).margin(0.px).toAttrs()) { Text("Errors from your app") }
+            SectionHeading("Errors from your app", id = "errors") {
                 if (errors.isNotEmpty()) {
-                    DangerButton("Clear") {
+                    ConfirmDangerButton("Clear log", "Remove every entry?", "Yes, clear") {
                         scope.launch {
                             val result = runCatching {
                                 Http.postForm(AmieConfig.api("errors-clear?username=${encodeURIComponent(username)}"), emptyMap(), Http.bearer(AuthClient.accessToken()))
@@ -142,16 +191,25 @@ fun Dashboard() {
                 }
             }
             if (errors.isEmpty()) {
-                Card(Modifier.margin(bottom = 2.cssRem)) { MutedText("Your app has not reported an error.") }
+                Card(Modifier.margin(bottom = 2.cssRem)) { MutedText("Your app has not reported an error. Anything it logs as an error shows up here with the time it happened.") }
             } else {
-                Table(DataTableStyle.toModifier().margin(bottom = 2.cssRem).toAttrs()) {
-                    Thead { Tr { Th { Text("When") }; Th { Text("Kind") }; Th { Text("Message") } } }
-                    Tbody {
-                        for (entry in errors) {
-                            Tr {
-                                Td { SpanText(formatDate(entry["time"] as? String), Modifier.whiteSpace(WhiteSpace.NoWrap)) }
-                                Td { Text(entry["error"] as? String ?: "–") }
-                                Td { Text(entry["message"] as? String ?: "–") }
+                TableScroll(Modifier.margin(bottom = 2.cssRem)) {
+                    Table(DataTableStyle.toModifier().toAttrs()) {
+                        Thead { Tr { Th { Text("When") }; Th { Text("Kind") }; Th { Text("Message") }; Th { Text("") } } }
+                        Tbody {
+                            for (entry in errors) {
+                                val time = entry["time"] as? String
+                                val message = entry["message"] as? String ?: "–"
+                                Tr {
+                                    Td { SpanText(formatRelative(time), Modifier.whiteSpace(WhiteSpace.NoWrap).attrsModifier { attr("title", formatDate(time)) }) }
+                                    Td { Badge(entry["error"] as? String ?: "error", BadgeTone.MUTED) }
+                                    Td { SpanText(message, Modifier.styleModifier { property("word-break", "break-word") }) }
+                                    Td {
+                                        Div(Modifier.display(DisplayStyle.Flex).justifyContent(JustifyContent.FlexEnd).toAttrs()) {
+                                            CopyButton(message, label = "Copy", done = "Copied", toast = "Error message copied.")
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -159,50 +217,71 @@ fun Dashboard() {
             }
         }
 
-        H2(Modifier.fontSize(14.px).margin(top = 0.px, bottom = 0.8.cssRem).toAttrs()) { Text("Packages") }
+        SectionHeading("Packages", id = "packages") {
+            if (packages.size > 4) {
+                TextField(filter, { filter = it }, placeholder = "Filter by name…", modifier = Modifier.width(16.cssRem).height(2.cssRem).attrsModifier { attr("data-search", ""); attr("aria-label", "Filter packages") })
+            }
+        }
+        val visible = packages.filter { filter.isBlank() || (it["name"] as? String ?: "").contains(filter.trim(), ignoreCase = true) }
         when {
-            loading && packages.isEmpty() -> EmptyState("Loading packages…")
-            packages.isEmpty() -> Card { MutedText(if (isOwner) "You have not uploaded a package yet." else "$username has not published a package yet.") }
-            else -> Table(DataTableStyle.toModifier().toAttrs()) {
-                Thead { Tr { Th { Text("Name") }; Th { Text("Size") }; Th { Text("") } } }
-                Tbody {
-                    for (item in packages) {
-                        val name = item["name"] as? String ?: "Unknown"
-                        val path = item["path"] as? String ?: ""
-                        val size = (item["size"] as? Number)?.toDouble() ?: 0.0
-                        val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
-                        Tr {
-                            Td { SpanText(name, Modifier.fontWeight(FontWeight.Medium)) }
-                            Td { Text(formatSize(size)) }
-                            Td {
-                                Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                                    GhostButton("View") {
-                                        ctx.router.navigateTo("/view?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&from=dashboard&url=${encodeURIComponent(downloadUrl)}")
+            loading && packages.isEmpty() -> SkeletonRows(rows = 3, label = "Loading packages…")
+            packages.isEmpty() -> EmptyAction(
+                if (isOwner) "You have not uploaded a package yet." else "$username has not published a package yet.",
+                if (isOwner) "Upload a jar that exposes run(text) and close(); it is checked before it is stored." else null,
+                action = { if (isOwner) LinkButton("Upload your first package", "/navigateto?username=${encodeURIComponent(username)}") else LinkButton("Browse other authors", "/", primary = false) }
+            )
+            visible.isEmpty() -> EmptyAction("Nothing matches “${filter.trim()}”.", action = { GhostButton("Clear the filter") { filter = "" } })
+            else -> TableScroll {
+                Table(DataTableStyle.toModifier().toAttrs()) {
+                    Thead { Tr { Th { Text("Name") }; Th { Text("Kind") }; Th { Text("Size") }; Th { Text("") } } }
+                    Tbody {
+                        for (item in visible) {
+                            val name = item["name"] as? String ?: "Unknown"
+                            val path = item["path"] as? String ?: ""
+                            val size = (item["size"] as? Number)?.toDouble() ?: 0.0
+                            val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
+                            val kind = PackageKind.of(name)
+                            val viewUrl = "/view?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&from=dashboard&url=${encodeURIComponent(downloadUrl)}"
+                            Tr {
+                                Td {
+                                    Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.5.cssRem).toAttrs()) {
+                                        KindIcon(kind)
+                                        A(viewUrl, attrs = Modifier.fontWeight(FontWeight.Medium).textDecorationLine(com.varabyte.kobweb.compose.css.TextDecorationLine.None).toAttrs()) { Text(name) }
                                     }
-                                    if (isOwner) {
-                                        GhostButton("Replace") {
-                                            ctx.router.navigateTo("/edit?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}")
-                                        }
-                                        DangerButton("Delete") {
-                                            scope.launch {
-                                                notice = "Deleting $name…"
-                                                noticeKind = BannerKind.INFO
-                                                val token = AuthClient.accessToken()
-                                                val result = runCatching {
-                                                    Http.get(AmieConfig.api("delete-package?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&token=${encodeURIComponent(token.orEmpty())}"))
-                                                }.getOrNull()
-                                                if (result?.ok == true) {
-                                                    ClientCache.removePrefix("packages:")
-                                                    notice = "$name was deleted."
-                                                    noticeKind = BannerKind.SUCCESS
-                                                    load(refresh = true)
-                                                } else {
-                                                    notice = when (result?.status) {
-                                                        401 -> "Please sign in again to delete packages."
-                                                        403 -> "Only the author can delete this package."
-                                                        else -> "$name could not be deleted."
+                                }
+                                Td { Badge(kind.label) }
+                                Td { Text(formatSize(size)) }
+                                Td {
+                                    Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
+                                        GhostButton("View") { ctx.router.navigateTo(viewUrl) }
+                                        if (downloadUrl.isNotEmpty()) LinkButton("Download", downloadUrl, download = true, primary = false)
+                                        if (isOwner) {
+                                            GhostButton("Replace") {
+                                                ctx.router.navigateTo("/edit?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}")
+                                            }
+                                            ConfirmDangerButton("Delete", "Delete $name for everyone?", "Yes, delete") {
+                                                scope.launch {
+                                                    notice = "Deleting $name…"
+                                                    noticeKind = BannerKind.INFO
+                                                    val token = AuthClient.accessToken()
+                                                    val result = runCatching {
+                                                        Http.get(AmieConfig.api("delete-package?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&token=${encodeURIComponent(token.orEmpty())}"))
+                                                    }.getOrNull()
+                                                    if (result?.ok == true) {
+                                                        ClientCache.removePrefix("packages:")
+                                                        ClientCache.remove("jars:list")
+                                                        notice = "$name was deleted."
+                                                        noticeKind = BannerKind.SUCCESS
+                                                        Toasts.show("$name was deleted.", BannerKind.SUCCESS)
+                                                        load(refresh = true)
+                                                    } else {
+                                                        notice = when (result?.status) {
+                                                            401 -> "Please sign in again to delete packages."
+                                                            403 -> "Only the author can delete this package."
+                                                            else -> "$name could not be deleted."
+                                                        }
+                                                        noticeKind = BannerKind.ERROR
                                                     }
-                                                    noticeKind = BannerKind.ERROR
                                                 }
                                             }
                                         }
@@ -213,6 +292,9 @@ fun Dashboard() {
                     }
                 }
             }
+        }
+        if (isOwner && packages.isNotEmpty()) {
+            HintText("Replace keeps the file name and swaps the content for everyone; Delete asks once before it removes the file.", Modifier.margin(top = 0.8.cssRem))
         }
     }
 }

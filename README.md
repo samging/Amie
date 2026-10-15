@@ -65,6 +65,7 @@ generated, not edited here. After the app's docs change, regenerate them and reb
 
 ```bash
 scripts/sync-docs.sh                     # reads ../amieAppStable/docs, or the folder in $AMIE_APP_DOCS / the first argument
+scripts/docs-index.sh                    # (run by sync-docs.sh) rebuilds the headings index the site search uses
 cd app && ./gradlew :site:kspKotlinJs    # compiles the pages; a bare <placeholder> outside backticks breaks this
 ```
 
@@ -80,7 +81,7 @@ page for one that fits the site.
 | `AMIE_BACKEND_PORT` | backend | listen port (default 8080; `run.sh` picks 8090 by itself when Keycloak holds 8080 on the same machine) |
 | `AWS_PROFILE`, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | awsS3 | how the S3 service signs its bucket calls (default: profile `default` from `~/.aws/credentials`, region eu-north-1) |
 | `JAVA_HOME_21` | run.sh | the JDK 21 to run every Gradle build with |
-| `KEYCLOAK_ISSUER` | backend, site server | the `iss` claim of the realm's tokens. The realm has no fixed frontend URL, so it is the address the browser used for Keycloak; `run.sh` defaults to `http://<this machine's LAN address>:8080/realms/master` |
+| `KEYCLOAK_ISSUER` | backend | the `iss` claims the backend accepts, comma-separated. The realm has no fixed frontend URL, so a token's issuer is the address its client used for Keycloak: localhost for the desktop app and the site server, the LAN address for a browser on the LAN. `run.sh` defaults to `http://localhost:8080/realms/master,http://127.0.0.1:8080/realms/master,http://<this machine's LAN address>:8080/realms/master` |
 | `KEYCLOAK_JWKS_URI` | backend | where the backend reaches the realm's certs endpoint (default `http://localhost:8080/realms/master/protocol/openid-connect/certs`) |
 | `KEYCLOAK_URL` | site server | where the Kobweb server reaches Keycloak (default `http://localhost:8080`) |
 | `KEYCLOAK_CLIENT_SECRET` | site server | the confidential `amie` client's secret for `/api/keycloak/token`; never shipped to browsers. Without it every sign-in on the site fails (Keycloak logs `invalid_client_credentials`, the page says sign-in is not available). `run.sh` reads it from the desktop app's `AMP/keycloak.json` when unset |
@@ -93,13 +94,21 @@ page for one that fits the site.
 
 | Page | What it does |
 |---|---|
-| `/` | The package store: search, authors, packages |
-| `/downloads` | Jar downloads, listed from the S3 bucket through the site's `/api/jars` and `/api/jar-download` routes |
-| `/docs` | The desktop app documentation, generated from `amieAppStable/docs` by `scripts/sync-docs.sh` (see Documentation above) |
-| `/navigateto` | Upload a package jar (signed in) |
-| `/dashboard?username=` | One author's packages and devices; owners can replace and delete, and see the errors their app reported (`/api/errors`, cleared with `/api/errors-clear`) |
-| `/loginpage` | Sign in with username and password, with the browser (SSO), or by scanning a QR code on a phone |
-| `/admin` | For Keycloak accounts with the `admin` role (`AMIE_ADMIN_ROLE`): remove any package or build, publish application builds |
+| `/` | The package store: every file of every author in one list (`/api/all-packages`), filtered as you type, with kind chips, sorting, author cards, recently viewed files, and a store-wide search for wildcards such as `*jar` |
+| `/downloads` | The desktop app builds (the one for the visitor's own system first, with install hints and MD5 checksums) and the package jars, listed from the S3 bucket through the site's `/api/jars` and `/api/jar-download` routes |
+| `/docs` | The desktop app documentation, generated from `amieAppStable/docs` by `scripts/sync-docs.sh` (see Documentation above); a page finder in the sidebar, "On this page" links, previous/next pages, a Copy button on every code block |
+| `/view?package=` | One file: breadcrumbs, line numbers, wrapping, pretty-printed JSON, copy; jars show their classes and a snippet for the app; other files by the same author |
+| `/navigateto` | Upload a package jar (signed in): three steps, the browser's own jar check, a warning when the name already exists, a progress bar |
+| `/edit?package=` | Replace one of your files; shows a progress bar and lands on the dashboard with a confirmation |
+| `/dashboard?username=` | One author's packages and devices with the numbers at a glance; owners can replace and delete (with a confirmation step), and see the errors their app reported (`/api/errors`, cleared with `/api/errors-clear`) |
+| `/loginpage` | Sign in with username and password (show/hide, Caps Lock warning, remembered username), with the browser (SSO), or by scanning a QR code on a phone; says what you were about to do when sent here |
+| `/profile` | Name, email and a few words, with the session and package count; changes can be discarded before saving |
+| `/admin` | For Keycloak accounts with the `admin` role (`AMIE_ADMIN_ROLE`): remove any package or build (with a confirmation step), publish application builds |
+| any other address | A 404 page with suggestions for the page that was probably meant |
+
+Everywhere: `⌘K` / `Ctrl+K` (or the magnifier in the header) opens a search over pages, authors, packages, docs pages
+and docs sections (`scripts/docs-index.sh` writes that index into `DocsIndex.kt`; `sync-docs.sh` runs it); `/` jumps to
+the page's own filter box; copy actions confirm with a small toast; the header marks the current section.
 
 ### Application downloads
 
@@ -128,6 +137,7 @@ and the reason. Accepted jars are stored in the S3 bucket at `uploads/<user>/jar
 The S3 bucket behind the awsS3 service is the only store. Package files live at `uploads/<user>/<lang>/<file>`,
 a user's device state at `uploads/<user>/state/devices.json` and the errors the desktop app reports at
 `uploads/<user>/state/errors.jsonl`. The site proxies the backend for all of it: `/api/packages` (the listing),
+`/api/all-packages` (every author's files merged into one list, which the store page and the search use),
 `/api/view?package=`, `/api/delete-package`, and `GET /api/errors?username=` with the owner's
 `Authorization: Bearer` header, which the dashboard shows under "Errors from your app"
 (`POST /api/errors-clear?username=` empties the log).
@@ -150,6 +160,11 @@ Keycloak tokens are verified in the browser too (`auth/Jwt.kt`: RS256 signature 
 issuer, expiry, client) before a session is kept, and refreshed with the refresh token when they run out. The
 QR sign-in uses Keycloak's OAuth 2.0 Device Authorization Grant, which must be enabled on the `amie` client;
 without it the QR code simply opens the hosted sign-in page.
+
+The desktop app signs the browser in with its own session: **Open website** in the app posts the app's tokens to
+`POST /api/sso/handoff` (`api/sso/Handoff.kt`), which keeps them for two minutes behind a one-time code, and opens
+`/sso?code=<code>&next=<path>` (`pages/Sso.kt`). The page claims the code with `POST /api/sso/claim`, verifies the
+tokens like any other sign-in and continues to `next`; the tokens never appear in a URL.
 
 In the browser, `config/AmieConfig.kt` derives the backend and Keycloak addresses from the page's host (port
 8080). Override per browser with `localStorage.setItem("amie.backendUrl", "http://host:8090")` and

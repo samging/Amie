@@ -12,6 +12,7 @@ import com.varabyte.kobweb.silk.style.CssStyle
 import com.varabyte.kobweb.silk.style.breakpoint.Breakpoint
 import com.varabyte.kobweb.silk.style.toAttrs
 import com.varabyte.kobweb.silk.theme.colors.ColorMode
+import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -28,6 +29,7 @@ import org.example.app.toSitePalette
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.css.*
 import org.jetbrains.compose.web.dom.*
+import org.w3c.dom.HTMLElement
 import kotlin.js.Date
 
 val LoginGridStyle = CssStyle {
@@ -35,9 +37,24 @@ val LoginGridStyle = CssStyle {
     Breakpoint.MD { Modifier.gridTemplateColumns { size(1.fr); size(1.fr) } }
 }
 
+private const val LAST_USERNAME_KEY = "amie.lastUsername"
+
 /** Where to go after a successful sign-in: the `next` parameter, or the person's dashboard. */
 private fun destination(next: String?, username: String): String =
     next?.takeIf { it.startsWith("/") && !it.startsWith("//") } ?: "/dashboard?username=${encodeURIComponent(username)}"
+
+/** What the person was trying to reach, in words, for the heading. */
+private fun describe(next: String?): String? {
+    val path = next?.takeIf { it.startsWith("/") }?.substringBefore('?') ?: return null
+    return when {
+        path.startsWith("/navigateto") -> "upload a package"
+        path.startsWith("/edit") -> "replace a package"
+        path.startsWith("/dashboard") -> "see your packages"
+        path.startsWith("/admin") -> "open the admin page"
+        path.startsWith("/profile") -> "edit your profile"
+        else -> "continue where you were"
+    }
+}
 
 @NoLiveLiterals
 @Page("loginpage")
@@ -47,12 +64,17 @@ fun Loginpage() {
     val scope = rememberCoroutineScope()
     val palette = ColorMode.current.toSitePalette()
     val next = ctx.route.params["next"]
+    val startLocal = ctx.route.params["local"] == "1"
+    val remembered = remember { runCatching { window.localStorage.getItem(LAST_USERNAME_KEY) }.getOrNull().orEmpty() }
 
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(remembered) }
     var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    var capsLock by remember { mutableStateOf(false) }
+    var rememberName by remember { mutableStateOf(remembered.isNotEmpty()) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var useLocalAccount by remember { mutableStateOf(false) }
+    var useLocalAccount by remember { mutableStateOf(startLocal) }
 
     // "Scan to sign in"
     var device by remember { mutableStateOf<DeviceStart?>(null) }
@@ -62,12 +84,28 @@ fun Loginpage() {
 
     LaunchedEffect(Unit) {
         AuthClient.currentUser()?.let { ctx.router.navigateTo(destination(next, it)); return@LaunchedEffect }
+        (document.getElementById(if (remembered.isEmpty()) "login-username" else "login-password") as? HTMLElement)?.focus()
     }
 
     fun finish(result: SignIn) {
         when (result) {
-            is SignIn.Success -> ctx.router.navigateTo(destination(next, result.session.username))
+            is SignIn.Success -> {
+                runCatching {
+                    if (rememberName) window.localStorage.setItem(LAST_USERNAME_KEY, name.trim()) else window.localStorage.removeItem(LAST_USERNAME_KEY)
+                }
+                Toasts.show("Signed in as ${result.session.username}.", BannerKind.SUCCESS)
+                ctx.router.navigateTo(destination(next, result.session.username))
+            }
             is SignIn.Failure -> error = result.message
+        }
+    }
+
+    fun submit() {
+        if (busy) return
+        scope.launch {
+            busy = true; error = null
+            finish(if (useLocalAccount) AuthClient.signInLocal(name, password) else AuthClient.signInWithPassword(name, password))
+            busy = false
         }
     }
 
@@ -102,8 +140,10 @@ fun Loginpage() {
     LaunchedEffect(Unit) { startDeviceFlow() }
     DisposableEffect(Unit) { onDispose { pollJob?.cancel() } }
 
+    val reason = describe(next)
+
     PageLayout("Sign in") {
-        PageHeading("Sign in", "Use your Amie account to upload and manage packages.")
+        PageHeading("Sign in", reason?.let { "Sign in to $it." } ?: "Use your Amie account to upload and manage packages.")
 
         Div(LoginGridStyle.toAttrs()) {
             // Credentials
@@ -112,25 +152,33 @@ fun Loginpage() {
                     Text(if (useLocalAccount) "Local account" else "Username and password")
                 }
                 Div(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).gap(1.cssRem).toAttrs()) {
-                    Div { FieldLabel("Username"); TextField(name, { name = it }, "Username", onEnter = {}) }
                     Div {
-                        FieldLabel("Password")
-                        TextField(password, { password = it }, "Password", InputType.Password, onEnter = {
-                            if (!busy) scope.launch {
-                                busy = true; error = null
-                                finish(if (useLocalAccount) AuthClient.signInLocal(name, password) else AuthClient.signInWithPassword(name, password))
-                                busy = false
-                            }
+                        FieldLabel("Username")
+                        TextField(name, { name = it }, "Username", onEnter = { (document.getElementById("login-password") as? HTMLElement)?.focus() }, attrs = {
+                            id("login-username"); attr("autocomplete", "username"); attr("autocapitalize", "none"); attr("spellcheck", "false")
                         })
                     }
-                    StatusBanner(error, BannerKind.ERROR)
-                    PrimaryButton(if (busy) "Signing in…" else "Sign in", enabled = !busy) {
-                        scope.launch {
-                            busy = true; error = null
-                            finish(if (useLocalAccount) AuthClient.signInLocal(name, password) else AuthClient.signInWithPassword(name, password))
-                            busy = false
+                    Div {
+                        FieldLabel("Password")
+                        Div(Modifier.display(DisplayStyle.Flex).gap(0.5.cssRem).alignItems(AlignItems.Center).toAttrs()) {
+                            TextField(password, { password = it }, "Password", if (showPassword) InputType.Text else InputType.Password, onEnter = { submit() }, attrs = {
+                                id("login-password"); attr("autocomplete", "current-password")
+                                onKeyDown { capsLock = it.getModifierState("CapsLock") }
+                                onKeyUp { capsLock = it.getModifierState("CapsLock") }
+                            })
+                            GhostButton(if (showPassword) "Hide" else "Show") { showPassword = !showPassword }
                         }
+                        if (capsLock) HintText("Caps Lock is on.", Modifier.margin(top = 0.3.cssRem))
                     }
+                    Label(attrs = Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.5.cssRem).fontSize(9.px).cursor(com.varabyte.kobweb.compose.css.Cursor.Pointer).toAttrs()) {
+                        Input(InputType.Checkbox, attrs = {
+                            checked(rememberName)
+                            onChange { rememberName = it.value }
+                        })
+                        Text("Remember my username on this device")
+                    }
+                    StatusBanner(error, BannerKind.ERROR)
+                    PrimaryButton(if (busy) "Signing in…" else "Sign in", enabled = !busy) { submit() }
                 }
 
                 Hr(Modifier.margin(topBottom = 1.2.cssRem).border(0.px, LineStyle.None, palette.border).borderTop(1.px, LineStyle.Solid, palette.border).toAttrs())
@@ -167,6 +215,7 @@ fun Loginpage() {
                             Text(" and enter ")
                             Span(Modifier.fontWeight(FontWeight.Bold).fontFamily("monospace").toAttrs()) { Text(current.userCode) }
                         }
+                        CopyButton(current.userCode, label = "Copy code", done = "Copied", toast = "The code was copied.")
                         StatusBanner(deviceMessage, BannerKind.ERROR)
                         if (deviceMessage != null) GhostButton("Show a new code") { startDeviceFlow() }
                     }
@@ -177,6 +226,10 @@ fun Loginpage() {
                     else -> MutedText("Preparing a code…")
                 }
             }
+        }
+
+        Div(Modifier.margin(top = 1.5.cssRem).toAttrs()) {
+            HintText("One account works everywhere: this website, the Amie desktop app and the Android app all sign in with the same name and password.")
         }
     }
 }

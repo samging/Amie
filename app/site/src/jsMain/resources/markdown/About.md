@@ -30,3 +30,12 @@ on them.
 | Desktop app | Train intent models, serve them, manage devices |
 
 Sign in with your Amie account, or scan the QR code on the sign-in page with your phone.
+
+## Finding your way
+
+- Press **⌘K** (or **Ctrl+K**) on any page, or use the magnifier in the header, to search packages, authors, the
+  documentation and its sections at once. Type **/** to jump to the filter box of the page you are on.
+- The packages page filters as you type; **Search the store** asks the server, which understands wildcards such as
+  `*jar`.
+- Every file has its own page with a copyable link; jars show the classes inside and a snippet for the app.
+- Deleting or replacing a package always asks once before anything changes.

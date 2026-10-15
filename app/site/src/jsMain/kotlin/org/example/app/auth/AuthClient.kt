@@ -9,6 +9,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import org.example.app.components.ClientCache
 import org.example.app.components.Http
+import org.example.app.components.widgets.BannerKind
+import org.example.app.components.widgets.Toasts
 import org.example.app.config.AmieConfig
 import kotlin.js.Date
 
@@ -58,6 +60,17 @@ object AuthClient {
     suspend fun exchangeCode(code: String): SignIn {
         val result = Http.postForm(tokenUrl, mapOf("code" to code, "redirect_uri" to AmieConfig.oauthRedirectUri))
         return establish(result, wrongCredentials = "The sign-in link has expired. Please try again.")
+    }
+
+    /**
+     * Signs in with the tokens the Amie desktop app handed to this site (`/sso?code=`): the one-time code is
+     * claimed from the site's server and the tokens are checked like any other sign-in.
+     */
+    suspend fun signInWithHandoff(code: String): SignIn {
+        val result = runCatching { Http.postForm(AmieConfig.api("sso/claim"), mapOf("code" to code)) }.getOrNull()
+            ?: return SignIn.Failure("The sign-in service is unavailable.")
+        if (result.status == 404) return SignIn.Failure("This sign-in link was already used or has expired. Open the website from the app again.")
+        return establish(result, wrongCredentials = "The sign-in from the app could not be completed.")
     }
 
     /** Starts the "scan to sign in" flow; null when the realm does not offer it. */
@@ -152,7 +165,7 @@ object AuthClient {
         var session = AuthSession.current() ?: return null
         if (session.source == SessionSource.KEYCLOAK) {
             if (session.expired || (verifiedToken != session.accessToken && !Jwt.verify(session.accessToken, false).valid)) {
-                session = refresh(session) ?: run { signOutLocally(); return null }
+                session = refresh(session) ?: run { sessionEnded(); return null }
             }
             verifiedToken = session.accessToken
             return session.username
@@ -163,7 +176,7 @@ object AuthClient {
             }
         }.getOrNull()
         if (check == "401") {
-            signOutLocally()
+            sessionEnded()
             return null
         }
         return session.username
@@ -173,6 +186,12 @@ object AuthClient {
     suspend fun accessToken(): String? {
         currentUser() ?: return null
         return AuthSession.accessToken
+    }
+
+    /** The stored session no longer works: forget it and say so once. */
+    private fun sessionEnded() {
+        signOutLocally()
+        Toasts.show("Your session has ended. Sign in again to upload or manage packages.", BannerKind.INFO, durationMs = 5000)
     }
 
     fun signOutLocally() {

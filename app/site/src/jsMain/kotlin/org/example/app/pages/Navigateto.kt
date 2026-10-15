@@ -25,6 +25,14 @@ import org.jetbrains.compose.web.dom.*
 import org.w3c.dom.HTMLInputElement
 import org.w3c.files.File
 import org.w3c.xhr.FormData
+import kotlin.js.Json
+
+private fun namesIn(text: String): Set<String> {
+    if (text.isBlank()) return emptySet()
+    val json = JSON.parse<dynamic>(text)
+    if (!(js("Array.isArray(json)") as Boolean)) return emptySet()
+    return json.unsafeCast<Array<Json>>().mapNotNull { it["name"] as? String }.toSet()
+}
 
 /** Uploads a package jar: checked in the browser first, then by the backend for the run/close contract. */
 @NoLiveLiterals
@@ -36,25 +44,36 @@ fun Navigateto() {
     val palette = ColorMode.current.toSitePalette()
 
     var user by remember { mutableStateOf<String?>(null) }
-    var checkedAuth by remember { mutableStateOf(false) }
+    var existing by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedFile by remember { mutableStateOf<File?>(null) }
     var precheck by remember { mutableStateOf<JarPrecheckResult?>(null) }
     var checking by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var uploading by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0.0) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeKind by remember { mutableStateOf(BannerKind.INFO) }
 
     LaunchedEffect(Unit) {
         user = AuthClient.currentUser()
-        checkedAuth = true
-        if (user == null) ctx.router.navigateTo("/loginpage?next=${encodeURIComponent("/navigateto")}")
+        val owner = user
+        if (owner == null) {
+            ctx.router.navigateTo("/loginpage?next=${encodeURIComponent("/navigateto")}")
+            return@LaunchedEffect
+        }
+        // What the person already published, to warn before a file replaces an older one with the same name
+        existing = runCatching {
+            namesIn(ClientCache.cached("packages:user:$owner", ClientCache.MINUTE) {
+                Http.get(AmieConfig.api("repo-by-username?username=${encodeURIComponent(owner)}")).takeIf { it.ok }?.text ?: "[]"
+            })
+        }.getOrDefault(emptySet())
     }
 
     fun choose(file: File?) {
         selectedFile = file
         precheck = null
         notice = null
+        progress = 0.0
         if (file == null) return
         checking = true
         scope.launch {
@@ -67,8 +86,8 @@ fun Navigateto() {
         val file = selectedFile ?: return
         val owner = user ?: return
         uploading = true
-        notice = "Uploading ${file.name}…"
-        noticeKind = BannerKind.INFO
+        progress = 0.0
+        notice = null
         try {
             val token = AuthClient.accessToken()
             if (token == null) {
@@ -80,18 +99,18 @@ fun Navigateto() {
             form.append("file", file)
             form.append("username", owner)
             form.append("progLanguage", "jar")
-            val result = Http.postBody(AmieConfig.backend("upload"), form, Http.bearer(token))
+            val result = Http.upload(AmieConfig.backend("upload"), form, Http.bearer(token)) { progress = it }
             when {
                 result.ok -> {
+                    progress = 1.0
                     ClientCache.removePrefix("packages:")
                     ClientCache.remove("jars:list")
                     // Let the site's server forget its copies too, so the new jar shows up at once
                     runCatching { Http.get(AmieConfig.api("jars?refresh=1")) }
                     runCatching { Http.get(AmieConfig.api("repo-by-username?username=${encodeURIComponent(owner)}&refresh=1")) }
-                    runCatching { Http.get(AmieConfig.api("packages?refresh=1")) }
-                    notice = "${file.name} was uploaded."
-                    noticeKind = BannerKind.SUCCESS
-                    ctx.router.navigateTo("/dashboard?username=${encodeURIComponent(owner)}")
+                    runCatching { Http.get(AmieConfig.api("all-packages?refresh=1")) }
+                    Toasts.show("${file.name} was uploaded.", BannerKind.SUCCESS)
+                    ctx.router.navigateTo("/dashboard?username=${encodeURIComponent(owner)}&uploaded=${encodeURIComponent(file.name)}")
                 }
                 result.status == 400 -> {
                     notice = "The jar was not accepted: ${result.text.ifBlank { "it does not look like an Amie package." }}"
@@ -99,6 +118,10 @@ fun Navigateto() {
                 }
                 result.status == 401 || result.status == 403 -> {
                     notice = "Please sign in again before uploading."
+                    noticeKind = BannerKind.ERROR
+                }
+                result.status == 0 -> {
+                    notice = "The upload was interrupted. Check the connection and try again."
                     noticeKind = BannerKind.ERROR
                 }
                 else -> {
@@ -114,8 +137,20 @@ fun Navigateto() {
         }
     }
 
+    val file = selectedFile
+    val ready = precheck?.ok == true
+    val step = when {
+        uploading -> 2
+        ready -> 2
+        file != null -> 1
+        else -> 0
+    }
+    val replaces = file != null && file.name in existing
+
     PageLayout("Upload") {
+        Breadcrumbs(Crumb("Packages", "/"), user?.let { Crumb(it, "/dashboard?username=${encodeURIComponent(it)}") } ?: Crumb("You"), Crumb("Upload"))
         PageHeading("Upload a package", user?.let { "Publishing as $it" })
+        Steps(listOf("Choose a jar", "Check it", "Upload"), step)
 
         Card(Modifier.margin(bottom = 1.cssRem)) {
             Div(Modifier.fontWeight(FontWeight.SemiBold).margin(bottom = 0.4.cssRem).toAttrs()) { Text("What a package jar needs") }
@@ -126,12 +161,16 @@ fun Navigateto() {
                 Code { Text("close()") }
                 Text(". run handles one text input and returns the lines to show; close releases whatever run opened. Anything else is refused.")
             }
+            Div(Modifier.margin(top = 0.6.cssRem).display(DisplayStyle.Flex).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
+                LinkButton("See published jars", "/downloads", primary = false)
+                LinkButton("How the app runs a package", "/docs/sessions", primary = false)
+            }
         }
 
         // Drop zone
         Div(
             Modifier.fillMaxWidth().minHeight(9.cssRem).padding(1.5.cssRem).borderRadius(14.px)
-                .border(2.px, LineStyle.Dashed, if (dragging) palette.brand.primary else palette.border)
+                .border(2.px, LineStyle.Dashed, if (dragging || file != null) palette.brand.primary else palette.border)
                 .backgroundColor(if (dragging) palette.infoBackground else palette.nearBackground)
                 .display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).alignItems(AlignItems.Center)
                 .justifyContent(JustifyContent.Center).gap(0.6.cssRem).toAttrs {
@@ -144,9 +183,9 @@ fun Navigateto() {
                     }
                 }
         ) {
-            Text(selectedFile?.let { "Selected: ${it.name} (${formatSize(it.size.toDouble())})" } ?: "Drop a .jar here, or")
+            Text(file?.let { "Selected: ${it.name} (${formatSize(it.size.toDouble())})" } ?: "Drop a .jar here, or")
             Label(forId = "jar-file", attrs = Modifier.cursor(com.varabyte.kobweb.compose.css.Cursor.Pointer).color(palette.brand.primary).fontWeight(FontWeight.SemiBold).toAttrs()) {
-                Text(if (selectedFile == null) "choose a file" else "choose another file")
+                Text(if (file == null) "choose a file" else "choose another file")
             }
             Input(InputType.File, attrs = Modifier.display(DisplayStyle.None).toAttrs {
                 id("jar-file")
@@ -162,22 +201,45 @@ fun Navigateto() {
         precheck?.let { result ->
             if (result.ok) {
                 StatusBanner(
-                    "Looks like a jar: ${result.classCount} classes" + (if (result.hasManifest) ", with a manifest" else "") + ". The run/close check happens when you submit.",
+                    "Looks like a jar: ${plural(result.classCount, "class", "classes")}" + (if (result.hasManifest) ", with a manifest" else "") + ". The run/close check happens when you upload.",
                     BannerKind.SUCCESS, Modifier.margin(top = 1.cssRem)
                 )
+                Card(Modifier.margin(top = 0.8.cssRem)) {
+                    Div(Modifier.display(DisplayStyle.Grid).gridTemplateColumns { size(minContent); size(1.fr) }.gap(0.3.cssRem, 1.cssRem).fontSize(10.px).lineHeight(1.9).toAttrs()) {
+                        MutedText("File"); Div { Text(file?.name ?: "–") }
+                        MutedText("Size"); Div { Text(formatSize(file?.size?.toDouble() ?: 0.0)) }
+                        MutedText("Entries"); Div { Text("${result.entries} in the archive, ${result.classCount} compiled classes") }
+                        MutedText("Manifest"); Div { Text(if (result.hasManifest) "present" else "none (that is fine for a package)") }
+                    }
+                }
+                if (replaces) {
+                    StatusBanner("You already published a file called ${file?.name}. Uploading replaces it for everyone who downloads it.", BannerKind.INFO, Modifier.margin(top = 0.8.cssRem))
+                }
+                if ((file?.size?.toDouble() ?: 0.0) > 50.0 * 1024 * 1024) {
+                    HintText("Large file: keep this page open while the bar fills.", Modifier.margin(top = 0.5.cssRem))
+                }
             } else {
                 StatusBanner(result.problems.joinToString(" "), BannerKind.ERROR, Modifier.margin(top = 1.cssRem))
             }
         }
 
+        if (uploading) {
+            ProgressBar(progress, label = if (progress >= 1.0) "Checking run/close on the server…" else "Uploading ${file?.name ?: "the file"}", Modifier.margin(top = 1.cssRem))
+        }
         StatusBanner(notice, noticeKind, Modifier.margin(top = 1.cssRem))
 
-        Div(Modifier.display(DisplayStyle.Flex).gap(0.6.cssRem).margin(top = 1.5.cssRem).toAttrs()) {
+        Div(Modifier.display(DisplayStyle.Flex).gap(0.6.cssRem).margin(top = 1.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
             PrimaryButton(
-                if (uploading) "Uploading…" else "Upload package",
-                enabled = !uploading && !checking && precheck?.ok == true && user != null
+                when {
+                    uploading -> "Uploading…"
+                    replaces -> "Upload and replace"
+                    else -> "Upload package"
+                },
+                enabled = !uploading && !checking && ready && user != null
             ) { scope.launch { upload() } }
-            if (selectedFile != null) GhostButton("Clear", enabled = !uploading) { choose(null) }
+            if (file != null) GhostButton("Clear", enabled = !uploading) { choose(null) }
+            user?.let { LinkButton("Your packages", "/dashboard?username=${encodeURIComponent(it)}", primary = false) }
         }
+        if (file == null) HintText("Nothing is sent until you press Upload. The file is first read in your browser to make sure it is a jar with compiled classes.", Modifier.margin(top = 0.8.cssRem))
     }
 }

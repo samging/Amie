@@ -45,7 +45,7 @@ object JarPrecheck {
     }
 
     /** The names in the zip central directory, or null when there is no readable directory. */
-    private fun entryNames(bytes: Uint8Array): List<String>? {
+    fun entryNames(bytes: Uint8Array): List<String>? {
         val length = bytes.length
         var eocd = -1
         var position = length - 22

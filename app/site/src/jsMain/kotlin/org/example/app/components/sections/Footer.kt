@@ -1,6 +1,7 @@
 package org.example.app.components.sections
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import com.varabyte.kobweb.compose.css.TextAlign
 import com.varabyte.kobweb.compose.foundation.layout.Box
 import com.varabyte.kobweb.compose.ui.Alignment
@@ -14,12 +15,18 @@ import com.varabyte.kobweb.silk.style.CssStyle
 import com.varabyte.kobweb.silk.style.base
 import com.varabyte.kobweb.silk.style.toModifier
 import com.varabyte.kobweb.silk.theme.colors.ColorMode
+import org.example.app.auth.AuthSession
+import org.example.app.components.Platform
+import org.example.app.components.widgets.KeyHint
+import org.example.app.config.encodeURIComponent
 import org.example.app.toSitePalette
 import org.jetbrains.compose.web.css.cssRem
 import org.jetbrains.compose.web.css.percent
 import org.jetbrains.compose.web.css.px
 import org.jetbrains.compose.web.css.LineStyle
+import org.jetbrains.compose.web.dom.Div
 import org.jetbrains.compose.web.dom.Span
+import org.jetbrains.compose.web.dom.Text
 
 val FooterStyle = CssStyle.base {
     Modifier
@@ -32,14 +39,32 @@ val FooterStyle = CssStyle.base {
 }
 
 @Composable
+private fun FooterLink(path: String, text: String) {
+    val palette = ColorMode.current.toSitePalette()
+    Link(path, text, Modifier.setVariable(com.varabyte.kobweb.silk.style.vars.color.ColorVar, palette.brand.primary), variant = UncoloredLinkVariant)
+}
+
+@Composable
 fun Footer(modifier: Modifier = Modifier) {
+    val username = remember { AuthSession.username }
     Box(FooterStyle.toModifier().then(modifier), contentAlignment = Alignment.Center) {
-        Span(Modifier.textAlign(TextAlign.Center).toAttrs()) {
-            val palette = ColorMode.current.toSitePalette()
-            SpanText("Amie · Arduino board management and package store · ")
-            Link("/docs", "Docs", Modifier.setVariable(com.varabyte.kobweb.silk.style.vars.color.ColorVar, palette.brand.primary), variant = UncoloredLinkVariant)
-            SpanText(" · ")
-            Link("/downloads", "Downloads", Modifier.setVariable(com.varabyte.kobweb.silk.style.vars.color.ColorVar, palette.brand.primary), variant = UncoloredLinkVariant)
+        Div(Modifier.textAlign(TextAlign.Center).toAttrs()) {
+            Span {
+                SpanText("Amie · Arduino board management and package store · ")
+                FooterLink("/docs", "Docs")
+                SpanText(" · ")
+                FooterLink("/downloads", "Downloads")
+                SpanText(" · ")
+                FooterLink("/about", "About")
+                SpanText(" · ")
+                if (username != null) FooterLink("/dashboard?username=${encodeURIComponent(username)}", "Your packages")
+                else FooterLink("/loginpage", "Sign in")
+            }
+            Div(Modifier.fontSize(8.px).margin(top = 0.4.cssRem).toAttrs()) {
+                Text("Press ")
+                KeyHint("${Platform.commandKey} K")
+                Text(" to search packages, authors and docs from any page.")
+            }
         }
     }
 }

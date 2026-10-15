@@ -59,3 +59,6 @@ for file in "$dst"/*.md; do
 done
 
 echo "sync-docs: wrote $count pages from $src to $dst"
+
+# the site search lists every heading of these pages; rebuild that index too
+"$here/docs-index.sh"

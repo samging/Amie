@@ -27,16 +27,30 @@ import java.util.concurrent.atomic.AtomicReference
  * `username` they were given.
  *
  * Configuration (application.properties):
- * - `amie.keycloak.issuer`: the `iss` claim Keycloak puts in tokens (the realm's frontend URL + `/realms/<realm>`)
+ * - `amie.keycloak.issuer`: the `iss` claims accepted, comma-separated. A realm without a fixed frontend URL
+ *   writes the address the client reached it on, so the desktop app (localhost) and a browser on the LAN
+ *   (the machine's LAN address) hold tokens with different issuers for the same realm; list every address
+ *   the realm is reached on.
  * - `amie.keycloak.jwks-uri`: where this server can reach the realm's certs endpoint (may differ from the
  *   issuer host, for example `localhost` while the issuer is a LAN address)
  */
 @Component
 class KeycloakTokenVerifier(
-    @Value("\${amie.keycloak.issuer}") val issuer: String,
+    @Value("\${amie.keycloak.issuer}") issuerList: String,
     @Value("\${amie.keycloak.jwks-uri}") val jwksUri: String,
 ) {
     private val log = LoggerFactory.getLogger(KeycloakTokenVerifier::class.java)
+
+    /** Every issuer a token may carry (trailing slashes ignored) */
+    val issuers: Set<String> = issuerList.split(',').map { it.trim().trimEnd('/') }.filter { it.isNotEmpty() }.toSet()
+
+    /** The first configured issuer, for messages */
+    val issuer: String get() = issuers.firstOrNull() ?: ""
+
+    init {
+        require(issuers.isNotEmpty()) { "amie.keycloak.issuer must name at least one issuer" }
+        log.info("Accepting Keycloak tokens from {}", issuers.joinToString())
+    }
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
     private val keys = AtomicReference<Map<String, Key>>(emptyMap())
 
@@ -46,10 +60,14 @@ class KeycloakTokenVerifier(
         return try {
             val payload = Jwts.parser()
                 .keyLocator(KeyLocator())
-                .requireIssuer(issuer)
                 .build()
                 .parseSignedClaims(token)
                 .payload
+            val tokenIssuer = payload.issuer?.trimEnd('/')
+            if (tokenIssuer !in issuers) {
+                log.warn("Keycloak token rejected: issuer {} is none of {}", tokenIssuer, issuers.joinToString())
+                return null
+            }
             val username = payload["preferred_username"] as? String
                 ?: payload["email"] as? String
                 ?: payload.subject
