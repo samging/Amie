@@ -11,6 +11,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
+import org.example.app.api.RateLimit
+import org.example.app.api.RateLimit.allow
 
 /**
  * `POST /api/keycloak/token`: exchanges an authorization code (`code`, `redirect_uri`) or a username and
@@ -20,6 +22,7 @@ import java.nio.charset.StandardCharsets
  */
 @Api("token")
 suspend fun exchangeToken(ctx: ApiContext) {
+    if (!ctx.allow(RateLimit.signin)) return
     try {
         val form = parseForm(ctx.req.readBodyText() ?: "")
         val params = mutableMapOf("client_id" to KeycloakServerConfig.clientId)

@@ -39,13 +39,16 @@ class UserServiceTest {
     @Mock private lateinit var activities: UserActivityRepository
     @Mock private lateinit var verifier: KeycloakTokenVerifier
     @Mock private lateinit var devices: DeviceStatusRepository
+    @Mock private lateinit var notes: org.example.amiepackagerepository.shared.notes.PackageNoteRepository
+    @Mock private lateinit var badgeRows: org.example.amiepackagerepository.shared.badges.UserBadgeRepository
+    @Mock private lateinit var publicationRows: org.example.amiepackagerepository.shared.publications.PublicationRepository
 
     private lateinit var service: UserService
     private val encoder = BCryptPasswordEncoder()
 
     @BeforeEach
     fun setUp() {
-        service = UserService(users, activities, verifier, devices)
+        service = UserService(users, activities, verifier, devices, notes, badgeRows, publicationRows)
     }
 
     private fun userRow(username: String = "sam", password: String = "pw", id: Long = 5) =
@@ -169,12 +172,12 @@ class UserServiceTest {
         `when`(users.findByUsername("sam")).thenReturn(sam)
         `when`(users.findByUsername("nobody")).thenReturn(null)
 
-        service.updateProfile("sam", ProfileUpdateDto(fullName = "Sam Uel", email = "sam@x", bio = "hi"))
+        service.updateProfile("sam", ProfileUpdateDto(fullName = "Sam Uel", email = "sam@x.org", bio = "hi"))
 
         val saved = argumentCaptor<RestUserEntity>()
         verify(users).save(saved.capture())
         assertEquals("Sam Uel", saved.lastValue.fullName)
-        assertEquals("sam@x", saved.lastValue.email)
+        assertEquals("sam@x.org", saved.lastValue.email)
         assertEquals("hi", saved.lastValue.bio)
         assertEquals(sam.password, saved.lastValue.password)
         val logged = argumentCaptor<UserActivity>()

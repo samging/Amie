@@ -192,8 +192,18 @@ tiles, a chip per operator type that filters the graph, and a tree of Inputs, th
 its inputs, outputs and attributes; weights named where a node reads them), Outputs, Weights and Metadata. The
 structure is read on the site's server by `api/onnx/OnnxReader.kt`, a protobuf walker that needs no ONNX library
 and never copies tensor contents, and served by `GET /api/model-info?package=` (cached five minutes; `422` for a
-file that is not ONNX, `404` for a missing one, files up to 256 MB). `./gradlew :site:jvmTest` in `app/` runs the
-reader's tests. Other model formats (`.bin`, `.pt`, `.safetensors`) only get the download button.
+file that is not ONNX, `404` for a missing one, files up to 256 MB). Every branch of the tree starts closed.
+
+The server also recognises the **blocks** a transformer is made of (`api/onnx/OnnxPatterns.kt`, the `patterns`
+list of the answer): each scaled dot-product attention (the scores `MatMul` of two activations, its scale and
+mask, the `Softmax`, the context `MatMul`, and the query, key, value and output projections around them),
+onnxruntime's fused `Attention`/`MultiHeadAttention`, feed-forward blocks (projection, activation, projection,
+gated ones too), and normalizations, fused or spelled out as `ReduceMean → Sub → Pow → … → Div`. They show as
+a "Blocks" branch with every node's role, as a tile ("Attention 12 · 12 feed-forward · 25 norm"), as chips
+that narrow the graph to one kind of block, and as a badge on each node that belongs to one. Operator families
+(linear, activation, normalization, shape, arithmetic, convolution) and block kinds each have one muted colour,
+the same in light and dark mode. `./gradlew :site:jvmTest` in `app/` runs the reader's and the detector's
+tests. Other model formats (`.bin`, `.pt`, `.safetensors`) only get the download button.
 
 A headless walkthrough of the site (sign-in through the app's SSO handoff, the trees, the model page, every file
 kind) is what `scripts/seed-site-content.py` is for: it publishes a jar, the desktop app's dummy ONNX model and a
@@ -204,9 +214,13 @@ few text files under a throwaway user and prints the user's tokens; `--cleanup <
 Unit tests (JUnit 5 + Mockito, no services needed):
 
 ```bash
-cd packageRepository && ./gradlew test     # the backend: controllers, user service, token verifier, package store client
-cd awsS3 && ./gradlew test                 # the S3 service: controllers, S3Service, jar inspection, the identity check
+cd packageRepository && ./gradlew test     # the backend: controllers, user service, token verifier, package store client, the error handler
+cd awsS3 && ./gradlew test                 # the S3 service: controllers, S3Service, jar inspection, the identity check, the error handler
 ```
+
+Both need `JAVA_HOME` at the JDK 21 from "Running"; `--offline` works, nothing is downloaded. The error answers
+are covered by `ApiExceptionHandlerTest` in each service (every thrown exception and the problem document it
+becomes, also through a real route) and `DeviceControllerTest` (how a failed repository action maps to a status).
 
 The backend's Spring context test (`AmiePackageRepositoryApplicationTests`) is left out by default because it needs
 Postgres and the Google Drive credentials; `-PexcludeTests=''` includes it.
@@ -225,6 +239,174 @@ token (`/me`), publishes a package jar (`/upload` with the token, the site's `/a
 and runs the site's SSO handoff (`/api/sso/handoff` → `/api/sso/claim`, once only) and `/api/keycloak/token`.
 Every check prints PASS or FAIL; everything it created is removed at the end (the Keycloak user, the backend
 accounts, the rows the backend made for them, the jar in the bucket).
+
+## Notes, nicknames and profile pictures
+
+Signed-in people can leave **notes** on any package (the "Notes" section of `/view?package=`), choose a
+**nickname** that is shown instead of their username, and upload a **profile picture** (both on `/profile`).
+Notes and profiles live in the backend's Postgres (`package_notes` table; `nickname`, `avatar`, `avatar_type`
+columns of `users`); the S3 bucket keeps holding only files.
+
+| Backend route | Who | What |
+|---|---|---|
+| `GET /notes?path=` | anyone | the notes on a package, newest first |
+| `POST /notes` `{"path","text"}` | signed in | adds a note (201 with the note); 404 for a package that is not in the store, 429 after ten notes in a minute |
+| `DELETE /notes/{id}` | the author or the package's owner | removes a note; 403 for anyone else |
+| `GET /profile?username=` | anyone | now also `nickname`, `hasAvatar`, `avatarVersion` |
+| `POST /profile?username=` `{"fullName","email","bio","nickname"}` | the person | 409 when the nickname is another account's username or nickname |
+| `GET /avatar?username=` | anyone | the picture, served with its detected type, `nosniff` and a sandboxing CSP; 404 when none |
+| `POST /avatar?username=` (multipart `file`), `DELETE /avatar?username=` | the person | sets or removes the picture |
+
+The site proxies them as `/api/notes?package=` (GET, POST `{"text"}`), `/api/notes-delete?id=`,
+`/api/avatar?username=` (GET, POST multipart) and `/api/avatar-delete?username=`; the browser never calls the
+backend. The Python example client has `notes`, `nick` and `avatar` commands for all of it.
+
+### Security measures
+
+Everything a person types or uploads is treated as hostile, on the server, whatever the page checked:
+
+- **No HTML from users, ever.** Notes, nicknames, names and bios are stored as plain text and rendered by the
+  site as DOM text nodes (`Text(...)` in Compose HTML), never through `innerHTML`; a note of
+  `<img src=x onerror=alert(1)>` is shown as those characters. There is no Markdown and links are not made
+  clickable. `ProfileRules` (`shared/profile/`) additionally strips control characters, zero-width characters
+  and bidi overrides (so `evil.jar` cannot be made to read as `raj.live`), collapses whitespace and cuts every
+  field to its limit (nickname 32, name 80, email 120, bio 280, note 2000 characters).
+- **Nicknames cannot impersonate.** 2 to 32 letters, digits, spaces, dots, dashes or underscores, and never
+  another account's username or nickname (case-insensitive): 409 `conflict`.
+- **Pictures are what their bytes say.** `AvatarValidator` accepts only PNG, JPEG, GIF and WebP by signature
+  (SVG and HTML are refused however they are named), at most 512 KB and 2048 × 2048 pixels (the header is
+  measured without decoding, so a decompression bomb is refused before it is decoded), and the detected type
+  is the one served. The picture comes back with `X-Content-Type-Options: nosniff`,
+  `Content-Disposition: inline` and `Content-Security-Policy: default-src 'none'; sandbox`, on the backend
+  and again on the site's proxy, which also refuses to serve anything that is not one of the four types.
+- **Authorization on the server.** A note needs a valid bearer token; only its author or the package's
+  owner can remove it; nicknames and pictures can only be changed by their owner (`requireUser`); the site
+  passes the person's token through and never decides on its own. Tokens travel in the `Authorization` header,
+  not in cookies, so there is no CSRF surface for these routes.
+- **Rate and size limits.** Ten notes a minute per person, two hundred per package, 16 KB request bodies on
+  the notes proxy, 512 KB pictures (checked three times: the page, the proxy, the backend).
+- **Keys stay below `uploads/`.** A note's package path is validated like every other key (`isAllowedKey`),
+  and the note is only stored when the store confirms the package exists.
+- **Nothing leaks.** Problem documents name what was wrong, never a stack trace; the proxies translate backend
+  answers into their short codes; 500s carry an id for the log.
+- **Pictures need an administrator's approval.** A new picture is stored as *waiting*: `GET /avatar` answers
+  404 for it, the profile says `avatarPending`, and only its owner (with their bearer, through
+  `/api/avatar-preview`) and administrators (`GET /admin/avatars/pending`, the "Pictures waiting for approval"
+  panel) can see it. `POST /admin/users/{u}/avatar/approve` makes it public; Reject removes it. Nothing a
+  stranger uploaded is ever shown to other visitors before a person looked at it.
+- **Timeouts.** Tomcat waits at most 10 s for a request line and headers (`server.tomcat.connection-timeout`),
+  keeps an idle connection 15 s, takes 500 connections and 64 threads (backend; 300 and 48 for the S3 service),
+  caps headers at 16 KB and multipart parts at 20, and ends async requests after 60 s (10 min for the S3
+  service's big uploads). The site's own clients time out after 10 s to connect and 30 to 60 s to answer (10 min
+  for a package upload), and the linked-account lookups after 5 and 10 s with redirects disabled.
+- **Rate limits.** Every service keeps token buckets per client address (`RateLimitFilter`, `RateLimit.kt`):
+  on the backend 10 sign-in attempts a minute (`/login`, `/register`), 20 uploads, 60 other writes, 300 reads;
+  on the S3 service 120 writes and 600 reads; on the site 10 sign-ins, 20 uploads, 60 writes and 30 heavy reads
+  (model structure, linked accounts) a minute. Over a limit the answer is `429` with `Retry-After` and the
+  problem document (`too_many_requests`). The site forwards the browser's address as `X-Forwarded-For`, and
+  the backend counts it only when the caller is on this machine or a private network, so an outside caller
+  cannot pretend to be someone else. The numbers are properties (`amie.ratelimit.*`) and environment
+  variables (`AMIE_LIMIT_SIGNIN`, `AMIE_LIMIT_UPLOAD`, `AMIE_LIMIT_WRITE`, `AMIE_LIMIT_HEAVY`;
+  `AMIE_TRUST_FORWARDED=1` when the site itself sits behind a reverse proxy).
+
+## Linked accounts, publications and badges
+
+On `/profile` a person can enter their **GitHub** and **Hugging Face** usernames. The dashboard then shows an
+"Elsewhere" section with their twelve most recently pushed public repositories and most downloaded public
+models, fetched by the site's server (`GET /api/linked?username=`, cached ten minutes) from the two public
+APIs, never by the browser. The handles are validated against the services' username rules on the backend
+(`ProfileRules.githubLogin`, `huggingFaceLogin`; a pasted profile address is reduced to the handle), so the
+server only ever calls `api.github.com/users/<login>/repos` and `huggingface.co/api/models?author=<login>`,
+and only `https://github.com/…` and `https://huggingface.co/…` links are rendered. Nothing is verified or
+signed in: the section says "as stated by the author".
+
+**Publications** (papers, theses, articles) are added on `/profile` and listed on the dashboard:
+`GET /publications?username=`, `POST /publications` `{title, venue, year, url, doi}`, `DELETE
+/publications/{id}` (the owner; an administrator through `DELETE /admin/publications/{id}`). A title is
+required, the year must be 1900 to 2100, a link must be `http(s)` (so a `javascript:` address can never be
+stored) and a DOI must look like `10.xxxx/…`; at most 50 per person. The site proxies them as
+`/api/publications` and `/api/publications-delete?id=`.
+
+**Badges** are granted and revoked by administrators only, from a fixed catalogue (`BadgeCatalog`: verified,
+maintainer, contributor, researcher, helper, early adopter): `GET /admin/badges`, `POST` / `DELETE
+/admin/users/{u}/badges/{badge}` (site: `/api/admin-badge?username=&badge=&action=grant|revoke`). A profile's
+`badges` list shows on the dashboard, the profile page and in the admin's People table, where each badge is
+a chip that toggles.
+
+## Administration
+
+`/admin` is for Keycloak accounts whose access token carries the **admin** role (a realm role or a role of the
+`amie` client; `AMIE_ADMIN_ROLE` changes the name). The page shows app builds and the bucket, the package store
+with a Remove on every file, **People** (every account with picture, nickname, how they sign in and how many
+notes they wrote; an admin can clear a nickname, remove a picture or delete an account with its devices,
+notes and activity) and the **latest notes** across all packages, each with a Remove.
+
+The role is verified twice: the site's server checks the token's `realm_access` / `resource_access` before it
+forwards anything (`api/keycloak/KeycloakTokens.kt`), and the backend checks the same claims again on every
+`/admin/...` route (`shared/admin/AdminAccess.kt`), so a call that reaches the backend directly is held to the
+same rule. Tokens the backend issues itself carry no roles and can never be admin. Every admin action is
+logged with the admin's username; an admin cannot delete their own account from the panel.
+
+| Backend route (bearer with the admin role) | What |
+|---|---|
+| `GET /admin/me` | who the admin is and their roles |
+| `GET /admin/users` | every account: profile (never the password hash), note count, local password or SSO |
+| `GET /admin/notes?limit=` | the latest notes, newest first |
+| `DELETE /admin/notes/{id}` | removes any note |
+| `DELETE /admin/users/{u}/nickname`, `DELETE /admin/users/{u}/avatar` | takes a nickname or picture away |
+| `DELETE /admin/users/{u}` | removes the account and what points at it (not its files in the store) |
+| `GET /admin/avatars/pending`, `POST /admin/users/{u}/avatar/approve` | the pictures waiting for approval, and approving one (reject = `DELETE …/avatar`) |
+| `GET /admin/badges`, `POST` / `DELETE /admin/users/{u}/badges/{badge}` | the badge catalogue, granting and revoking |
+| `DELETE /admin/publications/{id}` | removes anyone's publication |
+
+The site's `/api/admin-users`, `/api/admin-notes`, `/api/admin-note-delete?id=`, `/api/admin-avatars`,
+`/api/admin-badges`, `/api/admin-badge?username=&badge=&action=`, `/api/admin-publication-delete?id=` and
+`/api/admin-user-action?username=&action=clear-nickname|clear-avatar|approve-avatar|delete` forward these
+with the admin's own bearer. The Python client's `admin` commands call the backend directly (sign in with `keycloak`, not `login`).
+
+## Example scripts
+
+`scripts/examples/` holds small clients to copy from, each handling every answer the backend can give
+(see [`scripts/examples/README.md`](scripts/examples/README.md)):
+
+```bash
+scripts/examples/make-package-jar.sh echo-package.jar                         # the smallest valid package jar (--broken: one the store refuses)
+AMIE_USER=sam AMIE_PASSWORD=secret scripts/examples/publish-package.sh echo-package.jar   # sign in, upload, verify; one sentence per status
+python3 scripts/examples/amie_client.py login sam secret                        # a Python client/CLI with AmieError subclasses and retries
+python3 scripts/examples/amie_client.py state put devices '{"uno":{"name":"Uno","port":"/dev/tty.usb1"}}'
+AMIE_USER=sam AMIE_PASSWORD=secret scripts/examples/provoke-errors.sh          # every refusal, one line each: status, code, detail
+```
+
+## Error handling
+
+Anything a backend or S3 service route throws becomes one JSON shape, an RFC 9457 problem document
+(`application/problem+json`) with a sentence for people and a code for programs:
+
+```json
+{"type":"about:blank","title":"Forbidden","status":403,"detail":"The token belongs to another user",
+ "instance":"/upload","code":"forbidden","timestamp":"2026-10-15T16:02:11Z"}
+```
+
+| status | `code` | when |
+|---|---|---|
+| 400 | `bad_request` | a missing or malformed parameter, header, body, path or state name; `detail` names it |
+| 401 | `unauthorized` | no bearer token, or one that is expired or not from this backend / the Keycloak realm |
+| 403 | `forbidden` | the token is valid but the request names another user |
+| 404 | `not_found` | no such file, state, profile or route |
+| 409 | `conflict` | `/register` with a taken username |
+| 413 | `payload_too_large` | over the 100 MB upload limit or the 1 MiB state limit |
+| 502 | `store_unavailable`, `bad_gateway` | the S3 service refused or is unreachable; retry later |
+| 502 / 503 | `store_access_denied`, `bucket_missing`, `store_error`, `store_unreachable` | the S3 service itself: credentials, bucket, an S3 outage, no network |
+| 500 | `internal_error` | a bug; the body's `errorId` is next to the stack trace in `logs/backend.log` or `logs/s3.log` |
+
+Two kinds of answer stay plain text on purpose: a refused jar (`POST /upload`, 400 with the inspector's reasons,
+which the website shows as they are) and `/edit`, which the desktop app expects to answer 200 with
+`File updated successfully` or `Error updating file: …`. The website's own `/api/...` routes answer
+`{"error":"<code>"}` (`unauthorized`, `forbidden`, `not_found`, `too_large`, `unavailable`, …) and never pass
+the backend's text through except for that upload refusal. The desktop app reports its own errors to
+`POST /errors`; they show on the dashboard. Every route's refusals, the exceptions behind them
+(`ResponseStatusException`, `PackageStoreException`, `S3Exception`, …) and what a client should do are in
+[`ERRORS.md`](ERRORS.md); `scripts/examples/provoke-errors.sh` prints them live.
 
 ### Architectural Vision
 Bare-metal microcontrollers are incredibly affordable solutions that can act as the perfect "middlemen" for harvesting real-world data—such as voice signals, button events, and general IoT telemetry. Through Amie's Android UI, users can seamlessly manage, track, and toggle these connected Arduino boards.

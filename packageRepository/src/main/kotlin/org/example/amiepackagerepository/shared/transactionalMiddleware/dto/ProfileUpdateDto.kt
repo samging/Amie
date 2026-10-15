@@ -7,7 +7,12 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class ProfileUpdateDto(
-    val fullName: String,
-    val email: String,
-    val bio: String
+    val fullName: String = "",
+    val email: String = "",
+    val bio: String = "",
+    /** Empty clears the nickname. */
+    val nickname: String = "",
+    /** GitHub and Hugging Face handles; empty unlinks. */
+    val github: String = "",
+    val huggingFace: String = "",
 )

@@ -30,12 +30,14 @@ class UserControllerAuthTest {
     @Mock private lateinit var store: PackageStoreClient
     @Mock private lateinit var userService: UserService
     @Mock private lateinit var deviceService: TransactionalStatusRepository
+    @Mock private lateinit var badgeService: org.example.amiepackagerepository.shared.badges.BadgeService
+    @Mock private lateinit var adminAccess: org.example.amiepackagerepository.shared.admin.AdminAccess
 
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(UserController(store, userService, deviceService))
+        mockMvc = MockMvcBuilders.standaloneSetup(UserController(store, userService, deviceService, badgeService, adminAccess))
             .addPlaceholderValue("amie.cors.allowed-origins", "http://localhost:8081")
             .build()
     }

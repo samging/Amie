@@ -8,6 +8,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import org.example.app.api.RateLimit.allow
 
 private val uploadClient: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
@@ -22,6 +23,7 @@ private fun ApiContext.forwardUpload(path: String) {
         res.status = 405
         return
     }
+    if (!allow(RateLimit.upload)) return
     val token = bearerToken()
     if (token == null) {
         sendJson(401, """{"error":"unauthorized"}""")
@@ -39,6 +41,7 @@ private fun ApiContext.forwardUpload(path: String) {
                 .timeout(Duration.ofMinutes(10))
                 .header("Authorization", "Bearer $token")
                 .header("Content-Type", contentType)
+                .header("X-Forwarded-For", RateLimit.clientOf(this))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(bytes)).build(),
             HttpResponse.BodyHandlers.ofString()
         )

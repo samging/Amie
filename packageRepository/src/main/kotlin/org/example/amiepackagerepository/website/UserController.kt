@@ -1,14 +1,23 @@
 package org.example.amiepackagerepository.website
 
 import org.example.amiepackagerepository.shared.packagestore.PackageStoreClient
+import org.example.amiepackagerepository.shared.packagestore.requireUser
+import org.example.amiepackagerepository.shared.packagestore.requireSubject
+import org.example.amiepackagerepository.shared.profile.AvatarValidator
+import org.example.amiepackagerepository.shared.admin.AdminAccess
+import org.example.amiepackagerepository.shared.badges.BadgeService
 import org.example.amiepackagerepository.shared.packagestore.dto.PackageFileDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileUpdateDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.user.service.UserService
 import org.example.amiepackagerepository.shared.transactionalMiddleware.service.TransactionalStatusRepository
 import org.slf4j.LoggerFactory
+import org.springframework.http.CacheControl
 import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.web.multipart.MultipartFile
+import java.util.concurrent.TimeUnit
 import org.springframework.web.bind.annotation.CrossOrigin
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -34,7 +43,9 @@ import org.springframework.web.server.ResponseStatusException
 class UserController(
     private val store: PackageStoreClient,
     private val userService: UserService,
-    private val deviceService: TransactionalStatusRepository
+    private val deviceService: TransactionalStatusRepository,
+    private val badges: BadgeService,
+    private val adminAccess: AdminAccess,
 ) {
     private val logger = LoggerFactory.getLogger(UserController::class.java)
 
@@ -248,7 +259,7 @@ class UserController(
     fun getProfile(@RequestParam username: String): ProfileDto {
         logger.info("--- [GET /profile] START (user: {}) ---", username)
         val user = userService.getProfile(username) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found")
-        return ProfileDto.of(user)
+        return ProfileDto.of(user, badges.of(user))
     }
 
     /**
@@ -261,7 +272,7 @@ class UserController(
             ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized or expired token")
         userService.ensureUser(claims.subject)
         val user = userService.getProfile(claims.subject) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not found")
-        return ProfileDto.of(user)
+        return ProfileDto.of(user, badges.of(user))
     }
 
     /**
@@ -275,13 +286,54 @@ class UserController(
     ): String {
         logger.info("--- [POST /profile] START (user: {}) ---", username)
         val token = authHeader.removePrefix("Bearer ")
-        val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
-        
+        val claims = userService.validateToken(token) ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized or expired token")
+
         if (claims.subject != username) {
-            throw ResponseStatusException(HttpStatus.FORBIDDEN)
+            throw ResponseStatusException(HttpStatus.FORBIDDEN, "The token belongs to another user")
         }
 
         userService.updateProfile(username, profileDto)
         return "Profile updated successfully"
+    }
+
+    /**
+     * The profile picture, served with the type detected from its bytes and `nosniff`, so the browser
+     * never treats it as anything but an image. Cached for an hour; the `v=` the profile carries changes
+     * with the picture, so a new one shows at once.
+     */
+    @GetMapping("/avatar")
+    fun avatar(
+        @RequestParam username: String,
+        @RequestParam(defaultValue = "false") preview: Boolean,
+        @RequestHeader("Authorization", required = false) authHeader: String?,
+    ): ResponseEntity<ByteArray> {
+        // A picture still waiting for approval is shown only to its owner and to administrators, on request
+        val includePending = preview && authHeader != null && (
+            runCatching { userService.requireSubject(authHeader) == username }.getOrDefault(false) || adminAccess.isAdmin(authHeader)
+        )
+        val avatar = userService.getAvatar(username, includePending) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "No picture")
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(avatar.contentType))
+            .cacheControl(if (includePending) CacheControl.noStore() else CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic())
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Content-Disposition", "inline; filename=\"avatar\"")
+            .header("Content-Security-Policy", "default-src 'none'; sandbox")
+            .body(avatar.bytes)
+    }
+
+    /** Sets the caller's own picture (multipart `file`): 400 with the reason for anything but a small PNG, JPEG, GIF or WebP. */
+    @PostMapping("/avatar")
+    fun setAvatar(@RequestParam username: String, @RequestParam("file") file: MultipartFile, @RequestHeader("Authorization") authHeader: String): Map<String, Any> {
+        userService.requireUser(authHeader, username)
+        if (file.size > AvatarValidator.MAX_BYTES) throw ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "A picture may be at most ${AvatarValidator.MAX_BYTES / 1024} KB")
+        val avatar = userService.setAvatar(username, file.bytes)
+        return mapOf("ok" to true, "contentType" to avatar.contentType, "bytes" to avatar.bytes.size)
+    }
+
+    /** Removes the caller's own picture; 204 when gone, 404 when there was none. */
+    @DeleteMapping("/avatar")
+    fun clearAvatar(@RequestParam username: String, @RequestHeader("Authorization") authHeader: String): ResponseEntity<Void> {
+        userService.requireUser(authHeader, username)
+        return if (userService.clearAvatar(username)) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
     }
 }

@@ -6,10 +6,12 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import org.example.app.api.RateLimit.allow
 
 /** `POST /api/register`: creates a backend account; 409 when the name is taken. */
 @Api
 suspend fun register(ctx: ApiContext) {
+    if (!ctx.allow(RateLimit.signin)) return
     val requestBody = ctx.req.body?.decodeToString() ?: "{}"
     val request = HttpRequest.newBuilder()
         .uri(URI.create(ServerConfig.backend("/register")))

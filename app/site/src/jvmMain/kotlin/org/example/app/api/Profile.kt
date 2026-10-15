@@ -9,6 +9,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import org.example.app.api.RateLimit.allow
 
 private const val PROFILE_TTL_SECONDS = 300L
 private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
@@ -72,12 +73,14 @@ suspend fun profile(ctx: ApiContext) {
             else ctx.sendJson(200, entry.body.decodeToString())
         }
         HttpMethod.POST -> {
+            if (!ctx.allow(RateLimit.write)) return
             val token = ctx.bearerToken()
             if (token == null) {
                 ctx.sendJson(401, """{"error":"unauthorized"}""")
                 return
             }
             val body = ctx.req.body?.decodeToString()?.takeIf { it.isNotBlank() } ?: "{}"
+            if (body.length > 8 * 1024) { ctx.sendJson(413, """{"error":"too_large"}"""); return }
             try {
                 // Make sure the backend has a row for this account before the update looks it up
                 val me = backendGet("/me", token)
@@ -93,6 +96,8 @@ suspend fun profile(ctx: ApiContext) {
                     401 -> ctx.sendJson(401, """{"error":"unauthorized"}""")
                     403 -> ctx.sendJson(403, """{"error":"forbidden"}""")
                     400 -> ctx.sendJson(400, """{"error":"invalid_profile"}""")
+                    409 -> ctx.sendJson(409, """{"error":"conflict"}""")
+                    429 -> ctx.sendJson(429, """{"error":"too_many_requests"}""")
                     else -> {
                         ctx.logger.warn("Profile save for $username answered ${response.statusCode()}: ${response.body().take(200)}")
                         ctx.sendJson(502, """{"error":"unavailable"}""")

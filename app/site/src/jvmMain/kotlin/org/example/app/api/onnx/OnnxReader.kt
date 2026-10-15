@@ -22,6 +22,8 @@ data class OnnxSummary(
     val opCounts: Map<String, Int>,
     val parameters: Long,
     val fileSize: Long,
+    /** Attention, feed-forward and normalization blocks found in the graph (see [OnnxPatterns]) */
+    val patterns: List<Pattern> = emptyList(),
 )
 
 @Serializable data class Opset(val domain: String, val version: Long)
@@ -82,6 +84,7 @@ object OnnxReader {
             opCounts = opCounts,
             parameters = parameters,
             fileSize = bytes.size.toLong(),
+            patterns = OnnxPatterns.detect(graph.nodes, graph.initializers.map { it.name }.toSet(), (graph.valueInfo + graph.inputs + graph.outputs).associate { it.name to it.shape }),
         )
     }
 

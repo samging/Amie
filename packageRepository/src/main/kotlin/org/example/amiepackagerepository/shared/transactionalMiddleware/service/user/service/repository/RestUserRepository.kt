@@ -14,4 +14,6 @@ interface RestUserRepository : JpaRepository<RestUserEntity, Long> {
 
     fun existsByUsername(username: String): Boolean?
     fun findByUsername(username: String): RestUserEntity?
+    fun findByUsernameIgnoreCase(username: String): RestUserEntity?
+    fun findByNicknameIgnoreCase(nickname: String): RestUserEntity?
 }

@@ -6,10 +6,12 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import org.example.app.api.RateLimit.allow
 
 /** `POST /api/login`: signs in against the backend's own accounts and returns its `{token}` answer. */
 @Api
 suspend fun login(ctx: ApiContext) {
+    if (!ctx.allow(RateLimit.signin)) return
     val requestBody = ctx.req.body?.decodeToString() ?: "{}"
     val request = HttpRequest.newBuilder()
         .uri(URI.create(ServerConfig.backend("/login")))

@@ -3,6 +3,7 @@ package org.example.amiepackagerepository.shared.packagestore
 import kotlinx.coroutines.future.await
 import kotlinx.serialization.json.Json
 import org.example.amiepackagerepository.shared.packages.AmiePackage
+import org.example.amiepackagerepository.shared.notes.NoteService
 import org.example.amiepackagerepository.shared.packages.JarInspector
 import org.example.amiepackagerepository.shared.packagestore.dto.PackageFileDto
 import org.example.amiepackagerepository.shared.packagestore.dto.PackageItemDto
@@ -38,7 +39,8 @@ class PackageController(
     private val store: PackageStoreClient,
     private val userService: UserService,
     private val deviceService: TransactionalStatusRepository,
-    private val jarInspector: JarInspector
+    private val jarInspector: JarInspector,
+    private val notes: NoteService,
 ) {
     private val logger = LoggerFactory.getLogger(PackageController::class.java)
     private val json = Json { ignoreUnknownKeys = true }
@@ -105,7 +107,10 @@ class PackageController(
         } catch (e: PackageStoreException) {
             throw ResponseStatusException(HttpStatus.BAD_GATEWAY, e.message)
         }
-        if (removed) userService.logActivity(subject, "REMOVE_PACKAGE", "Removed package: ${path.substringAfterLast('/')}")
+        if (removed) {
+            userService.logActivity(subject, "REMOVE_PACKAGE", "Removed package: ${path.substringAfterLast('/')}")
+            notes.deleteForPackage(path)
+        }
         return if (removed) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
     }
 
@@ -173,7 +178,10 @@ class PackageController(
         if (!PackageStoreClient.isAllowedKey(key)) return ResponseEntity.badRequest().body("Invalid file name")
         return try {
             val removed = store.delete(key)
-            if (removed) userService.logActivity(username, "REMOVE_PACKAGE", "Removed package: $fileName")
+            if (removed) {
+                userService.logActivity(username, "REMOVE_PACKAGE", "Removed package: $fileName")
+                notes.deleteForPackage(key)
+            }
             ResponseEntity.ok(if (removed) "removed" else "not there")
         } catch (e: PackageStoreException) {
             logger.error("CONTROLLER: delete failed: {}", e.message)

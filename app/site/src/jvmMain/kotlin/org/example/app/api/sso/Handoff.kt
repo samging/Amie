@@ -15,6 +15,8 @@ import org.example.app.api.sendJson
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import org.example.app.api.RateLimit
+import org.example.app.api.RateLimit.allow
 
 /**
  * Single sign-on from the Amie desktop app into this website.
@@ -51,6 +53,7 @@ private fun looksLikeJwt(value: String?): Boolean =
 /** `POST /api/sso/handoff`: the app's tokens in, a one-time code out. */
 @Api("handoff")
 suspend fun handoff(ctx: ApiContext) {
+    if (!ctx.allow(RateLimit.write)) return
     if (ctx.req.method != HttpMethod.POST) {
         ctx.res.status = 405
         return
@@ -83,6 +86,7 @@ suspend fun handoff(ctx: ApiContext) {
 /** `POST /api/sso/claim` (`code=`): the tokens behind a code, once; 404 for an unknown, used or expired code. */
 @Api("claim")
 suspend fun claim(ctx: ApiContext) {
+    if (!ctx.allow(RateLimit.write)) return
     if (ctx.req.method != HttpMethod.POST) {
         ctx.res.status = 405
         return

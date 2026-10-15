@@ -2,6 +2,13 @@ package org.example.amiepackagerepository.shared.transactionalMiddleware.service
 
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
+import org.example.amiepackagerepository.shared.errors.ConflictException
+import org.example.amiepackagerepository.shared.notes.PackageNoteRepository
+import org.example.amiepackagerepository.shared.badges.UserBadgeRepository
+import org.example.amiepackagerepository.shared.publications.PublicationRepository
+import org.example.amiepackagerepository.shared.profile.Avatar
+import org.example.amiepackagerepository.shared.profile.AvatarValidator
+import org.example.amiepackagerepository.shared.profile.ProfileRules
 import org.example.amiepackagerepository.shared.transactionalMiddleware.dto.ProfileUpdateDto
 import org.example.amiepackagerepository.shared.transactionalMiddleware.entities.UserActivity
 import org.example.amiepackagerepository.shared.transactionalMiddleware.repository.DeviceStatusRepository
@@ -28,7 +35,10 @@ class UserService(
     private val restUserRepository: RestUserRepository,
     private val userActivityRepository: UserActivityRepository,
     private val keycloakTokenVerifier: KeycloakTokenVerifier,
-    private val deviceStatusRepository: DeviceStatusRepository
+    private val deviceStatusRepository: DeviceStatusRepository,
+    private val packageNoteRepository: PackageNoteRepository,
+    private val userBadgeRepository: UserBadgeRepository,
+    private val publicationRepository: PublicationRepository,
 ) {
     private val passwordEncoder = BCryptPasswordEncoder()
     private val log = LoggerFactory.getLogger(UserService::class.java)
@@ -73,6 +83,9 @@ class UserService(
                 // Rows that point at the user go first, or Postgres refuses the delete
                 deviceStatusRepository.deleteAll(deviceStatusRepository.findByUser(user))
                 userActivityRepository.deleteAll(userActivityRepository.findByUserUsername(username))
+                packageNoteRepository.deleteAll(packageNoteRepository.findByAuthor(user))
+                userBadgeRepository.deleteAll(userBadgeRepository.findByUser(user))
+                publicationRepository.deleteAll(publicationRepository.findByUserOrderByYearDescCreatedAtDesc(user))
                 restUserRepository.delete(user)
             } else {
                 log.debug("Password did not match for user: {}", username)
@@ -194,17 +207,91 @@ class UserService(
     }
 
     /**
-     * Updates the user profile.
+     * Updates the profile after cleaning every field ([ProfileRules]). A nickname that is another
+     * account's username or nickname is refused with [ConflictException]; a nickname or email that
+     * breaks the rules with [IllegalArgumentException].
      */
     fun updateProfile(username: String, profileDto: ProfileUpdateDto) {
         val user = restUserRepository.findByUsername(username) ?: throw IllegalArgumentException("User not found")
+        val nickname = ProfileRules.nickname(profileDto.nickname).orEmpty()
+        if (nickname.isNotEmpty() && !ProfileRules.sameName(nickname, username)) {
+            restUserRepository.findByUsernameIgnoreCase(nickname)?.takeIf { it.id != user.id }?.let { throw ConflictException("That nickname is another account's name") }
+            restUserRepository.findByNicknameIgnoreCase(nickname)?.takeIf { it.id != user.id }?.let { throw ConflictException("That nickname is taken") }
+        }
         val updatedUser = user.copy(
-            fullName = profileDto.fullName,
-            email = profileDto.email,
-            bio = profileDto.bio
+            fullName = ProfileRules.line(profileDto.fullName, ProfileRules.FULL_NAME_MAX),
+            email = ProfileRules.email(profileDto.email),
+            bio = ProfileRules.text(profileDto.bio, ProfileRules.BIO_MAX),
+            nickname = nickname,
+            githubLogin = ProfileRules.githubLogin(profileDto.github).orEmpty(),
+            huggingFaceLogin = ProfileRules.huggingFaceLogin(profileDto.huggingFace).orEmpty(),
         )
         restUserRepository.save(updatedUser)
         logActivity(username, "UPDATE_PROFILE", "Updated profile for $username")
+    }
+
+    /** Every account, for the admin panel. */
+    fun allUsers(): List<RestUserEntity> = restUserRepository.findAll().sortedBy { it.username.lowercase() }
+
+    /** An administrator takes a nickname away; false when the account has none or does not exist. */
+    fun adminClearNickname(username: String): Boolean {
+        val user = restUserRepository.findByUsername(username) ?: return false
+        if (user.nickname.isNullOrEmpty()) return false
+        restUserRepository.save(user.copy(nickname = ""))
+        logActivity(username, "ADMIN_CLEAR_NICKNAME", "An administrator removed the nickname '${user.nickname}'")
+        return true
+    }
+
+    /** An administrator removes an account with everything that points at it; false when there is none. */
+    @Transactional
+    fun adminDeleteUser(username: String): Boolean {
+        val user = restUserRepository.findByUsername(username) ?: return false
+        deviceStatusRepository.deleteAll(deviceStatusRepository.findByUser(user))
+        userActivityRepository.deleteAll(userActivityRepository.findByUserUsername(username))
+        packageNoteRepository.deleteAll(packageNoteRepository.findByAuthor(user))
+        userBadgeRepository.deleteAll(userBadgeRepository.findByUser(user))
+        publicationRepository.deleteAll(publicationRepository.findByUserOrderByYearDescCreatedAtDesc(user))
+        restUserRepository.delete(user)
+        return true
+    }
+
+    /** Stores a profile picture after [AvatarValidator] accepted it. */
+    fun setAvatar(username: String, bytes: ByteArray): Avatar {
+        val user = restUserRepository.findByUsername(username) ?: throw IllegalArgumentException("User not found")
+        val avatar = AvatarValidator.validate(bytes)
+        // A new picture waits for an administrator; until then only its owner and the admins see it
+        restUserRepository.save(user.copy(avatar = avatar.bytes, avatarType = avatar.contentType, avatarApproved = false))
+        logActivity(username, "UPDATE_AVATAR", "Uploaded a profile picture (${avatar.contentType}, ${avatar.bytes.size} bytes), awaiting approval")
+        return avatar
+    }
+
+    /** The stored picture when it is approved, or, with [includePending], also one still waiting; null otherwise. */
+    fun getAvatar(username: String, includePending: Boolean = false): Avatar? {
+        val user = restUserRepository.findByUsername(username) ?: return null
+        val bytes = user.avatar ?: return null
+        if (user.avatarApproved != true && !includePending) return null
+        return Avatar(bytes, user.avatarType ?: AvatarValidator.detect(bytes) ?: "application/octet-stream")
+    }
+
+    /** An administrator approves the waiting picture; false when there is none waiting. */
+    fun approveAvatar(username: String): Boolean {
+        val user = restUserRepository.findByUsername(username) ?: return false
+        if (user.avatar == null || user.avatarApproved == true) return false
+        restUserRepository.save(user.copy(avatarApproved = true))
+        logActivity(username, "AVATAR_APPROVED", "An administrator approved the profile picture")
+        return true
+    }
+
+    /** The accounts whose picture waits for approval. */
+    fun pendingAvatars(): List<RestUserEntity> = restUserRepository.findAll().filter { it.avatarPending }.sortedBy { it.username.lowercase() }
+
+    /** Removes the picture; false when there was none. */
+    fun clearAvatar(username: String): Boolean {
+        val user = restUserRepository.findByUsername(username) ?: throw IllegalArgumentException("User not found")
+        if (user.avatar == null) return false
+        restUserRepository.save(user.copy(avatar = null, avatarType = null, avatarApproved = null))
+        logActivity(username, "UPDATE_AVATAR", "Removed the profile picture")
+        return true
     }
 
     /**

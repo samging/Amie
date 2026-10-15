@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
 import org.example.app.components.Catalog
 import org.example.app.components.ClientCache
 import org.example.app.components.OnnxModelView
+import org.example.app.components.PackageNotes
 import org.example.app.components.Http
 import org.example.app.components.JarPrecheck
 import org.example.app.components.PackageKind
@@ -306,6 +307,10 @@ fun ViewPage() {
                 Code(attrs = Modifier.fontSize(8.px).styleModifier { property("word-break", "break-all") }.toAttrs()) { Text(sha) }
                 CopyButton(sha, label = "Copy", done = "Copied", toast = "Checksum copied.")
             }
+        }
+
+        if (!loading && error == null && packagePath.isNotEmpty()) {
+            PackageNotes(packagePath, owner = packagePath.removePrefix("uploads/").substringBefore('/'))
         }
 
         if (related.isNotEmpty()) {

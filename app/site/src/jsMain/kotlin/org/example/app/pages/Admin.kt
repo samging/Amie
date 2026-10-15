@@ -5,6 +5,7 @@ import com.varabyte.kobweb.compose.css.FontWeight
 import com.varabyte.kobweb.compose.css.WhiteSpace
 import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.attrsModifier
+import com.varabyte.kobweb.compose.ui.styleModifier
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.Page
@@ -19,6 +20,9 @@ import org.example.app.components.Catalog
 import org.example.app.components.CatalogEntry
 import org.example.app.components.ClientCache
 import org.example.app.components.Http
+import org.example.app.components.Note
+import org.example.app.components.BADGE_LABELS
+import kotlinx.serialization.Serializable
 import org.example.app.components.PackageKind
 import org.example.app.components.Platform
 import org.example.app.components.layouts.PageLayout
@@ -32,7 +36,16 @@ import org.w3c.dom.HTMLInputElement
 import org.w3c.files.File
 import kotlin.js.Json
 
-/** Administration: remove any package or build, publish application builds. Needs the Keycloak admin role. */
+/** One account as the admin panel lists it (`/api/admin-users`). */
+@Serializable data class AdminProfile(val username: String = "", val fullName: String = "", val email: String = "", val nickname: String = "", val hasAvatar: Boolean = false, val avatarVersion: String = "", val avatarPending: Boolean = false, val badges: List<String> = emptyList())
+@Serializable data class PendingAvatar(val username: String = "", val nickname: String = "", val contentType: String = "", val bytes: Int = 0)
+@Serializable data class AdminUser(val profile: AdminProfile = AdminProfile(), val notes: Long = 0, val hasPassword: Boolean = false)
+
+/**
+ * Administration, for a Keycloak account with the admin role: remove any package or build, publish
+ * application builds, and moderate people (nicknames, pictures, whole accounts) and notes. The role is
+ * verified by the site's server and again by the backend on every action.
+ */
 @NoLiveLiterals
 @Page("admin")
 @Composable
@@ -52,6 +65,10 @@ fun AdminPage() {
     var progress by remember { mutableStateOf(0.0) }
     var bucketFilter by remember { mutableStateOf("") }
     var storeFilter by remember { mutableStateOf("") }
+    var people by remember { mutableStateOf<List<AdminUser>>(emptyList()) }
+    var latestNotes by remember { mutableStateOf<List<Note>>(emptyList()) }
+    var peopleFilter by remember { mutableStateOf("") }
+    var pending by remember { mutableStateOf<List<PendingAvatar>>(emptyList()) }
 
     suspend fun bearer(): Map<String, String> = Http.bearer(AuthClient.accessToken())
 
@@ -61,6 +78,12 @@ fun AdminPage() {
             val jarText = Http.get(AmieConfig.api("jars?refresh=1")).takeIf { it.ok }?.text ?: "[]"
             jars = runCatching { jwtJson.decodeFromString(ListSerializer(JarInfo.serializer()), jarText) }.getOrDefault(emptyList())
             packages = Catalog.load(refresh = true)
+            val peopleText = Http.get(AmieConfig.api("admin-users"), bearer(), noStore = true).takeIf { it.ok }?.text ?: "[]"
+            people = runCatching { jwtJson.decodeFromString(ListSerializer(AdminUser.serializer()), peopleText) }.getOrDefault(emptyList())
+            val notesText = Http.get(AmieConfig.api("admin-notes?limit=100"), bearer(), noStore = true).takeIf { it.ok }?.text ?: "[]"
+            latestNotes = runCatching { jwtJson.decodeFromString(ListSerializer(Note.serializer()), notesText) }.getOrDefault(emptyList())
+            val pendingText = Http.get(AmieConfig.api("admin-avatars"), bearer(), noStore = true).takeIf { it.ok }?.text ?: "[]"
+            pending = runCatching { jwtJson.decodeFromString(ListSerializer(PendingAvatar.serializer()), pendingText) }.getOrDefault(emptyList())
         } catch (e: Throwable) {
             notice = "Some lists could not be loaded."
             noticeKind = BannerKind.ERROR
@@ -144,7 +167,43 @@ fun AdminPage() {
         }
     }
 
+    fun userAction(user: AdminUser, action: String, done: String) {
+        scope.launch {
+            val result = runCatching { Http.postForm(AmieConfig.api("admin-user-action?username=${encodeURIComponent(user.profile.username)}&action=$action"), emptyMap(), bearer()) }.getOrNull()
+            if (result?.ok == true) {
+                ClientCache.remove("profile:${user.profile.username}")
+                Toasts.show(done, BannerKind.SUCCESS)
+                loadAll()
+            } else {
+                notice = when (result?.status) { 403 -> "Your account lost the admin role."; 404 -> "That account is already gone."; 400 -> "That action is not allowed on this account."; else -> "The action could not be carried out right now." }
+                noticeKind = BannerKind.ERROR
+            }
+        }
+    }
+
+    fun badgeAction(user: AdminUser, badge: String, grant: Boolean) {
+        scope.launch {
+            val result = runCatching { Http.postForm(AmieConfig.api("admin-badge?username=${encodeURIComponent(user.profile.username)}&badge=$badge&action=${if (grant) "grant" else "revoke"}"), emptyMap(), bearer()) }.getOrNull()
+            if (result?.ok == true) { ClientCache.remove("profile:${user.profile.username}"); Toasts.show(if (grant) "Badge granted." else "Badge revoked.", BannerKind.SUCCESS); loadAll() }
+            else { notice = "The badge could not be changed right now."; noticeKind = BannerKind.ERROR }
+        }
+    }
+
+    fun deleteNote(note: Note) {
+        scope.launch {
+            val result = runCatching { Http.postForm(AmieConfig.api("admin-note-delete?id=${note.id}"), emptyMap(), bearer()) }.getOrNull()
+            if (result?.ok == true || result?.status == 404) {
+                latestNotes = latestNotes.filter { it.id != note.id }
+                ClientCache.remove("notes:${note.packagePath}")
+                Toasts.show("Note removed.", BannerKind.SUCCESS)
+            } else {
+                notice = "The note could not be removed right now."; noticeKind = BannerKind.ERROR
+            }
+        }
+    }
+
     val builds = jars.filter { it.kind == "application" }
+    val visiblePeople = people.filter { peopleFilter.isBlank() || it.profile.username.contains(peopleFilter.trim(), ignoreCase = true) || it.profile.nickname.contains(peopleFilter.trim(), ignoreCase = true) || it.profile.fullName.contains(peopleFilter.trim(), ignoreCase = true) }
     val visibleJars = jars.filter { bucketFilter.isBlank() || it.name.contains(bucketFilter.trim(), ignoreCase = true) }
     val visiblePackages = packages.filter { storeFilter.isBlank() || it.name.contains(storeFilter.trim(), ignoreCase = true) || it.author.contains(storeFilter.trim(), ignoreCase = true) }
 
@@ -173,6 +232,34 @@ fun AdminPage() {
                     StatTile("Package jars", (jars.size - builds.size).toString(), "in the bucket listing")
                     StatTile("Store files", packages.size.toString(), plural(packages.map { it.author }.filter { it.isNotEmpty() }.distinct().size, "author"))
                     StatTile("Store size", formatSize(packages.sumOf { it.size }))
+                    StatTile("People", people.size.toString(), plural(people.count { it.profile.hasAvatar }, "picture") + " · " + plural(people.count { it.profile.nickname.isNotEmpty() }, "nickname"))
+                    StatTile("Notes", latestNotes.size.toString(), "latest 100 shown below")
+                    StatTile("Pictures waiting", pending.size.toString(), if (pending.isEmpty()) "nothing to approve" else "approve or reject below")
+                }
+
+                // Pictures waiting for approval
+                SectionHeading("Pictures waiting for approval")
+                MutedText("A picture is shown next to a person's packages and notes only after one of you approves it. Reject removes it.", Modifier.margin(bottom = 0.6.cssRem))
+                if (pending.isEmpty()) {
+                    Card(Modifier.margin(bottom = 2.cssRem)) { MutedText(if (loading) "Loading…" else "No pictures are waiting.") }
+                } else {
+                    Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.8.cssRem).margin(bottom = 2.cssRem).toAttrs()) {
+                        for (p in pending) {
+                            Card(Modifier.padding(0.7.cssRem, 1.cssRem).minWidth(16.cssRem)) {
+                                Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.8.cssRem).toAttrs()) {
+                                    PendingAvatarPreview(p.username, size = 4.cssRem)
+                                    Div(Modifier.minWidth(0.px).toAttrs()) {
+                                        A("/dashboard?username=${encodeURIComponent(p.username)}", attrs = Modifier.fontWeight(FontWeight.Medium).toAttrs()) { Text(p.nickname.ifEmpty { p.username }) }
+                                        MutedText(listOfNotNull(p.nickname.takeIf { it.isNotEmpty() }?.let { "@${p.username}" }, p.contentType, formatSize(p.bytes.toDouble())).joinToString(" · "), Modifier.fontSize(8.px))
+                                        Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).margin(top = 0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
+                                            PrimaryButton("Approve") { userAction(AdminUser(AdminProfile(username = p.username)), "approve-avatar", "Picture of ${p.username} approved.") }
+                                            ConfirmDangerButton("Reject", "Remove this picture?", "Yes, remove") { userAction(AdminUser(AdminProfile(username = p.username)), "clear-avatar", "Picture of ${p.username} removed.") }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Publish a build
@@ -220,6 +307,76 @@ fun AdminPage() {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // People
+                SectionHeading("People") {
+                    if (people.size > 4) TextField(peopleFilter, { peopleFilter = it }, "Filter by name…", modifier = Modifier.width(14.cssRem).height(2.cssRem).attrsModifier { attr("aria-label", "Filter people") })
+                }
+                MutedText("Every account the backend knows. A nickname or picture that breaks the rules can be taken away; removing an account deletes its devices, notes and activity, not its files in the store.", Modifier.margin(bottom = 0.6.cssRem))
+                if (people.isEmpty()) {
+                    Card(Modifier.margin(bottom = 2.cssRem)) { MutedText(if (loading) "Loading…" else "No accounts, or the list could not be read.") }
+                } else if (visiblePeople.isEmpty()) {
+                    EmptyAction("Nobody matches “${peopleFilter.trim()}”.", modifier = Modifier.margin(bottom = 2.cssRem), action = { GhostButton("Clear the filter") { peopleFilter = "" } })
+                } else {
+                    TableScroll(Modifier.margin(bottom = 2.cssRem)) {
+                        Table(DataTableStyle.toModifier().toAttrs()) {
+                            Thead { Tr { Th { Text("") }; Th { Text("Account") }; Th { Text("Nickname") }; Th { Text("Badges") }; Th { Text("Sign-in") }; Th { Text("Notes") }; Th { Text("") } } }
+                            Tbody {
+                                for (person in visiblePeople) {
+                                    val p = person.profile
+                                    Tr {
+                                        Td { Avatar(PublicProfile(username = p.username, fullName = p.fullName, nickname = p.nickname, hasAvatar = p.hasAvatar, avatarVersion = p.avatarVersion), size = 1.8.cssRem) }
+                                        Td {
+                                            A("/dashboard?username=${encodeURIComponent(p.username)}", attrs = Modifier.fontWeight(FontWeight.Medium).toAttrs()) { Text(p.username) }
+                                            if (p.fullName.isNotEmpty()) MutedText(p.fullName, Modifier.fontSize(8.px))
+                                        }
+                                        Td { if (p.nickname.isEmpty()) MutedText("–") else Text(p.nickname) }
+                                        Td {
+                                            // One chip per badge in the catalogue: filled when granted; click toggles
+                                            Div(Modifier.display(DisplayStyle.Flex).gap(0.3.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
+                                                for ((key, labelAndMeaning) in BADGE_LABELS) {
+                                                    val has = key in p.badges
+                                                    Span(Modifier.toAttrs { attr("title", labelAndMeaning.second) }) { Chip(labelAndMeaning.first, has) { badgeAction(person, key, !has) } }
+                                                }
+                                            }
+                                        }
+                                        Td { Badge(if (person.hasPassword) "local" else "sso", if (person.hasPassword) BadgeTone.OUTLINE else BadgeTone.MUTED) }
+                                        Td { Text(person.notes.toString()) }
+                                        Td {
+                                            Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
+                                                if (p.nickname.isNotEmpty()) GhostButton("Clear nickname") { userAction(person, "clear-nickname", "Nickname of ${p.username} removed.") }
+                                                if (p.hasAvatar) GhostButton("Remove picture") { userAction(person, "clear-avatar", "Picture of ${p.username} removed.") }
+                                                if (p.username != username) ConfirmDangerButton("Delete account", "Delete the account ${p.username} with its devices, notes and activity?", "Yes, delete") { userAction(person, "delete", "Account ${p.username} deleted.") }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Notes
+                SectionHeading("Latest notes")
+                if (latestNotes.isEmpty()) {
+                    Card(Modifier.margin(bottom = 2.cssRem)) { MutedText(if (loading) "Loading…" else "Nobody has left a note yet.") }
+                } else {
+                    Div(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).gap(0.5.cssRem).margin(bottom = 2.cssRem).toAttrs()) {
+                        for (note in latestNotes) {
+                            Card(Modifier.padding(0.6.cssRem, 0.9.cssRem)) {
+                                Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).fontSize(9.px).toAttrs()) {
+                                    A("/dashboard?username=${encodeURIComponent(note.author)}", attrs = Modifier.fontWeight(FontWeight.Medium).toAttrs()) { Text(note.authorNickname.ifEmpty { note.author }) }
+                                    MutedText("on", Modifier.fontSize(8.px))
+                                    A("/view?package=${encodeURIComponent(note.packagePath)}") { Text(note.packagePath.removePrefix("uploads/")) }
+                                    MutedText(formatRelative(note.createdAt), Modifier.fontSize(8.px))
+                                    Span(Modifier.styleModifier { property("margin-left", "auto") }.toAttrs()) { ConfirmDangerButton("Remove", "Remove this note?", "Yes, remove") { deleteNote(note) } }
+                                }
+                                // Text node: shown as typed, never interpreted
+                                P(Modifier.margin(top = 0.3.cssRem, bottom = 0.px).fontSize(9.px).whiteSpace(WhiteSpace.PreWrap).styleModifier { property("overflow-wrap", "anywhere") }.toAttrs()) { Text(note.text.take(600) + if (note.text.length > 600) "…" else "") }
                             }
                         }
                     }

@@ -11,6 +11,7 @@ import org.example.app.api.onnx.OnnxReader
 import org.example.app.api.onnx.OnnxSummary
 import java.net.URLEncoder
 import java.util.Base64
+import org.example.app.api.RateLimit.allow
 
 private const val TTL_SECONDS = 300L
 private val json = Json { ignoreUnknownKeys = true }
@@ -24,6 +25,7 @@ private val json = Json { ignoreUnknownKeys = true }
  */
 @Api("model-info")
 suspend fun modelInfo(ctx: ApiContext) {
+    if (!ctx.allow(RateLimit.heavy)) return
     val path = ctx.req.params["package"]?.trim().orEmpty()
     if (path.isEmpty()) {
         ctx.sendJson(400, """{"error":"missing_path"}""")

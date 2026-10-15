@@ -20,6 +20,9 @@ import org.example.app.components.Http
 import org.example.app.components.PackageKind
 import org.example.app.components.layouts.PageLayout
 import org.example.app.components.widgets.*
+import org.example.app.components.BadgeRow
+import org.example.app.components.LinkedAccountsView
+import org.example.app.components.PublicationsView
 import org.example.app.config.AmieConfig
 import org.example.app.config.encodeURIComponent
 import org.jetbrains.compose.web.css.*
@@ -44,6 +47,7 @@ fun Dashboard() {
     val updated = ctx.route.params["updated"]?.trim()
 
     var loggedInUser by remember { mutableStateOf<String?>(null) }
+    var profile by remember { mutableStateOf<PublicProfile?>(null) }
     var packages by remember { mutableStateOf<List<Json>>(emptyList()) }
     var devices by remember { mutableStateOf<List<Json>>(emptyList()) }
     var errors by remember { mutableStateOf<List<Json>>(emptyList()) }
@@ -101,6 +105,7 @@ fun Dashboard() {
         loggedInUser = AuthClient.currentUser()
         load(refresh = flash != null)
         loadErrors()
+        profile = loadPublicProfile(username)
     }
 
     val isOwner = loggedInUser != null && loggedInUser == username
@@ -127,6 +132,17 @@ fun Dashboard() {
             if (isOwner) {
                 LinkButton("Upload a package", "/navigateto?username=${encodeURIComponent(username)}")
                 LinkButton("Profile", "/profile", primary = false)
+            }
+        }
+
+        profile?.let { p ->
+            Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.8.cssRem).margin(bottom = 1.2.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
+                Avatar(p, size = 3.cssRem)
+                Div {
+                    Div(Modifier.fontSize(13.px).toAttrs()) { Text(p.displayName) }
+                    MutedText(listOfNotNull(if (p.nickname.isNotEmpty()) "@${p.username}" else null, p.fullName.takeIf { it.isNotEmpty() }).joinToString(" · ").ifEmpty { "No profile details yet" })
+                    BadgeRow(p.badges, Modifier.margin(top = 0.3.cssRem))
+                }
             }
         }
 
@@ -296,6 +312,9 @@ fun Dashboard() {
         if (isOwner && packages.isNotEmpty()) {
             HintText("Replace keeps the file name and swaps the content for everyone; Delete asks once before it removes the file.", Modifier.margin(top = 0.8.cssRem))
         }
+
+        profile?.let { p -> LinkedAccountsView(username, p.github, p.huggingFace) }
+        PublicationsView(username)
     }
 }
 
