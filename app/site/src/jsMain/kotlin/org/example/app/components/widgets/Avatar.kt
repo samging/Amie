@@ -71,7 +71,7 @@ fun PendingAvatarPreview(username: String, size: CSSLengthValue = 2.5.cssRem) {
             if (response.ok) objectUrl = org.w3c.dom.url.URL.createObjectURL(response.blob().await())
         } catch (e: Throwable) { objectUrl = null }
     }
-    DisposableEffect(objectUrl) { onDispose { objectUrl?.let { runCatching { org.w3c.dom.url.URL.revokeObjectURL(it) } } } }
+    DisposableEffect(objectUrl) { val url = objectUrl; onDispose { url?.let { runCatching { org.w3c.dom.url.URL.revokeObjectURL(it) } } } }
     val url = objectUrl
     if (url == null) Avatar(PublicProfile(username = username), size)
     else Img(src = url, alt = "Your picture, awaiting approval", attrs = Modifier.size(size).flexShrink(0).border(2.px, LineStyle.Dashed, Colors.White).objectFit(ObjectFit.Cover).toAttrs { attr("title", "Awaiting approval") })

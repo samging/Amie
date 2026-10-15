@@ -18,6 +18,7 @@ import org.example.app.auth.AuthSession
 import org.example.app.auth.SessionSource
 import org.example.app.components.Catalog
 import org.example.app.components.BadgeRow
+import org.example.app.components.AdminInboxPanel
 import org.example.app.components.PublicationsEditor
 import org.example.app.components.ClientCache
 import org.example.app.components.Http
@@ -279,6 +280,8 @@ fun ProfilePage() {
                     }
                 }
             }
+
+            AdminInboxPanel(Modifier.maxWidth(40.cssRem).margin(top = 1.5.cssRem))
 
             PublicationsEditor(user)
 

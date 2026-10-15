@@ -341,6 +341,12 @@ with a Remove on every file, **People** (every account with picture, nickname, h
 notes they wrote; an admin can clear a nickname, remove a picture or delete an account with its devices,
 notes and activity) and the **latest notes** across all packages, each with a Remove.
 
+An administrator also has an **Inbox**: a red counter next to "Inbox" in the header (`/api/admin-inbox`,
+refreshed every half minute) and an Inbox card on their own `/profile`, listing the pictures waiting for
+approval and the notes of the last day. Every waiting picture can be viewed at full size (the thumbnail or
+"View" opens it over the page with its pixel size, Approve and Reject); the bytes are fetched with the
+admin's bearer through `/api/avatar-preview`, since the picture is not public until approved.
+
 The role is verified twice: the site's server checks the token's `realm_access` / `resource_access` before it
 forwards anything (`api/keycloak/KeycloakTokens.kt`), and the backend checks the same claims again on every
 `/admin/...` route (`shared/admin/AdminAccess.kt`), so a call that reaches the backend directly is held to the
@@ -355,6 +361,7 @@ logged with the admin's username; an admin cannot delete their own account from 
 | `DELETE /admin/notes/{id}` | removes any note |
 | `DELETE /admin/users/{u}/nickname`, `DELETE /admin/users/{u}/avatar` | takes a nickname or picture away |
 | `DELETE /admin/users/{u}` | removes the account and what points at it (not its files in the store) |
+| `GET /admin/inbox` | what waits for an administrator: the pictures to approve and the notes of the last day, with counts |
 | `GET /admin/avatars/pending`, `POST /admin/users/{u}/avatar/approve` | the pictures waiting for approval, and approving one (reject = `DELETE …/avatar`) |
 | `GET /admin/badges`, `POST` / `DELETE /admin/users/{u}/badges/{badge}` | the badge catalogue, granting and revoking |
 | `DELETE /admin/publications/{id}` | removes anyone's publication |

@@ -106,7 +106,7 @@ http://localhost:8088 is unreachable: …` or `The package store could not <what
 | `POST /publications` | 401; 400 `A publication needs a title` / `The year must be between 1900 and 2100` / `A link must start with http:// or https://` / `That is not a valid link` / `That is not a DOI (10.xxxx/...)` / `At most 50 publications per person`; 404 `No such user` |
 | `DELETE /publications/{id}` | 401; 403 `Only the owner can remove this publication`; 404 |
 | `POST /profile?username=` (`github`, `huggingFace`) | 400 `That is not a GitHub username` / `That is not a Hugging Face username` |
-| `GET /admin/me`, `/admin/users`, `/admin/notes`, `/admin/avatars/pending`, `/admin/badges` | 401; 403 `The admin role is required` (a token without the Keycloak admin role, including every token this backend issued itself) |
+| `GET /admin/me`, `/admin/users`, `/admin/notes`, `/admin/inbox`, `/admin/avatars/pending`, `/admin/badges` | 401; 403 `The admin role is required` (a token without the Keycloak admin role, including every token this backend issued itself) |
 | `POST /admin/users/{u}/avatar/approve`, `POST`/`DELETE /admin/users/{u}/badges/{badge}`, `DELETE /admin/publications/{id}` | 401, 403; 404 when there is nothing to approve, revoke or remove, or no such user; 400 `No such badge: x` |
 | `DELETE /admin/notes/{id}`, `/admin/users/{u}/nickname`, `/admin/users/{u}/avatar`, `/admin/users/{u}` | 401, 403; 404 when there is nothing to remove; 400 `You cannot remove your own account here` |
 

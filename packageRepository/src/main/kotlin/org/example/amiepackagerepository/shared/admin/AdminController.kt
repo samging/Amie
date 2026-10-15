@@ -24,6 +24,9 @@ import org.springframework.web.bind.annotation.RestController
 /** One row of the admin's user list. */
 data class AdminUserDto(val profile: ProfileDto, val notes: Long, val hasPassword: Boolean)
 
+/** What waits for an administrator: pictures to approve and the notes of the last day, with the counts the inbox badge shows. */
+data class AdminInboxDto(val pendingAvatars: Int, val notesLastDay: Long, val total: Long, val pending: List<PendingAvatarDto>, val notes: List<NoteDto>)
+
 /** A picture waiting for approval: who, what type, how big; the bytes come from `GET /avatar?preview=1`. */
 data class PendingAvatarDto(val username: String, val nickname: String, val contentType: String, val bytes: Int)
 
@@ -80,6 +83,17 @@ class AdminController(
         val changed = userService.adminClearNickname(username)
         log.info("Admin {} cleared the nickname of {}: {}", admin.username, username, changed)
         return if (changed) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
+    }
+
+    /** The admin's inbox: pending pictures and the latest notes of the last 24 hours. */
+    @GetMapping("/inbox")
+    fun inbox(@RequestHeader("Authorization") authHeader: String): AdminInboxDto {
+        access.require(authHeader)
+        val pending = userService.pendingAvatars().map { PendingAvatarDto(it.username, it.nickname.orEmpty(), it.avatarType ?: "", it.avatar?.size ?: 0) }
+        val since = java.time.Instant.now().minus(java.time.Duration.ofDays(1))
+        val notesLastDay = notes.countByCreatedAtAfter(since)
+        val latest = notes.findAll(PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))).content.filter { it.createdAt.isAfter(since) }.map { NoteDto.of(it) }
+        return AdminInboxDto(pending.size, notesLastDay, pending.size + notesLastDay, pending, latest)
     }
 
     /** Pictures nobody has approved yet. */

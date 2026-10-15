@@ -126,6 +126,23 @@ class AdminControllerTest {
     }
 
     @Test
+    fun `the inbox counts waiting pictures and the day's notes`() {
+        tokenFor("root", realmRoles = listOf("admin"))
+        `when`(userService.pendingAvatars()).thenReturn(listOf(eve))
+        `when`(notes.countByCreatedAtAfter(any())).thenReturn(3L)
+        `when`(notes.findAll(any<Pageable>())).thenReturn(PageImpl(listOf(PackageNote(id = 1, packagePath = "uploads/sam/jar/x.jar", text = "new", author = eve))))
+        mockMvc.perform(get("/admin/inbox").header("Authorization", auth))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.pendingAvatars").value(1))
+            .andExpect(jsonPath("$.notesLastDay").value(3))
+            .andExpect(jsonPath("$.total").value(4))
+            .andExpect(jsonPath("$.pending[0].username").value("eve"))
+            .andExpect(jsonPath("$.notes[0].text").value("new"))
+        tokenFor("eve")
+        mockMvc.perform(get("/admin/inbox").header("Authorization", auth)).andExpect(status().isForbidden)
+    }
+
+    @Test
     fun `waiting pictures are listed and approved, badges granted and revoked`() {
         tokenFor("root", realmRoles = listOf("admin"))
         `when`(userService.pendingAvatars()).thenReturn(listOf(eve))

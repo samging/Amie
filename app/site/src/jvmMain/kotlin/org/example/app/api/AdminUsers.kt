@@ -41,6 +41,13 @@ private fun ApiContext.forwardAdmin(method: String, path: String, token: String,
 
 private fun validUsername(name: String) = name.isNotEmpty() && name.length <= 128 && name.none { it == '/' || it == '\\' || it.isWhitespace() || it.isISOControl() }
 
+/** `GET /api/admin-inbox`: what waits for an administrator (pending pictures, the day's notes) with counts for the badge. */
+@Api("admin-inbox")
+suspend fun adminInbox(ctx: ApiContext) {
+    val token = ctx.adminToken() ?: return
+    ctx.forwardAdmin("GET", "/admin/inbox", token, passBody = true)
+}
+
 /** `GET /api/admin-avatars`: the pictures waiting for approval (preview each with `/api/avatar-preview`). */
 @Api("admin-avatars")
 suspend fun adminAvatars(ctx: ApiContext) {

@@ -34,6 +34,7 @@ import com.varabyte.kobweb.silk.theme.colors.ColorMode
 import org.example.app.auth.AuthClient
 import org.example.app.auth.AuthSession
 import org.example.app.components.Platform
+import org.example.app.components.AdminInboxLink
 import org.example.app.components.widgets.GhostButton
 import org.example.app.components.widgets.IconButton
 import org.example.app.components.widgets.InlineSvg
@@ -84,6 +85,7 @@ private fun MenuItems(username: String?, current: String) {
     NavLink("/navigateto", "Upload", current == "/navigateto")
     if (username != null) NavLink("/dashboard?username=$username", "Dashboard", current == "/dashboard")
     if (AuthSession.isAdmin) NavLink("/admin", "Admin", current == "/admin")
+    AdminInboxLink(active = false)
 }
 
 @Composable

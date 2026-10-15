@@ -22,6 +22,8 @@ import org.example.app.components.ClientCache
 import org.example.app.components.Http
 import org.example.app.components.Note
 import org.example.app.components.BADGE_LABELS
+import org.example.app.components.PendingPictureCard
+import org.example.app.components.PendingPictureViewer
 import kotlinx.serialization.Serializable
 import org.example.app.components.PackageKind
 import org.example.app.components.Platform
@@ -38,7 +40,7 @@ import kotlin.js.Json
 
 /** One account as the admin panel lists it (`/api/admin-users`). */
 @Serializable data class AdminProfile(val username: String = "", val fullName: String = "", val email: String = "", val nickname: String = "", val hasAvatar: Boolean = false, val avatarVersion: String = "", val avatarPending: Boolean = false, val badges: List<String> = emptyList())
-@Serializable data class PendingAvatar(val username: String = "", val nickname: String = "", val contentType: String = "", val bytes: Int = 0)
+typealias PendingAvatar = org.example.app.components.PendingPicture
 @Serializable data class AdminUser(val profile: AdminProfile = AdminProfile(), val notes: Long = 0, val hasPassword: Boolean = false)
 
 /**
@@ -69,6 +71,7 @@ fun AdminPage() {
     var latestNotes by remember { mutableStateOf<List<Note>>(emptyList()) }
     var peopleFilter by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<List<PendingAvatar>>(emptyList()) }
+    var viewing by remember { mutableStateOf<PendingAvatar?>(null) }
 
     suspend fun bearer(): Map<String, String> = Http.bearer(AuthClient.accessToken())
 
@@ -234,7 +237,7 @@ fun AdminPage() {
                     StatTile("Store size", formatSize(packages.sumOf { it.size }))
                     StatTile("People", people.size.toString(), plural(people.count { it.profile.hasAvatar }, "picture") + " · " + plural(people.count { it.profile.nickname.isNotEmpty() }, "nickname"))
                     StatTile("Notes", latestNotes.size.toString(), "latest 100 shown below")
-                    StatTile("Pictures waiting", pending.size.toString(), if (pending.isEmpty()) "nothing to approve" else "approve or reject below")
+                    StatTile("Inbox", pending.size.toString(), if (pending.isEmpty()) "nothing to approve" else "pictures to approve or reject below")
                 }
 
                 // Pictures waiting for approval
@@ -243,22 +246,22 @@ fun AdminPage() {
                 if (pending.isEmpty()) {
                     Card(Modifier.margin(bottom = 2.cssRem)) { MutedText(if (loading) "Loading…" else "No pictures are waiting.") }
                 } else {
-                    Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.8.cssRem).margin(bottom = 2.cssRem).toAttrs()) {
+                    Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.8.cssRem).margin(bottom = 2.cssRem).toAttrs { attr("id", "inbox") }) {
                         for (p in pending) {
-                            Card(Modifier.padding(0.7.cssRem, 1.cssRem).minWidth(16.cssRem)) {
-                                Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.8.cssRem).toAttrs()) {
-                                    PendingAvatarPreview(p.username, size = 4.cssRem)
-                                    Div(Modifier.minWidth(0.px).toAttrs()) {
-                                        A("/dashboard?username=${encodeURIComponent(p.username)}", attrs = Modifier.fontWeight(FontWeight.Medium).toAttrs()) { Text(p.nickname.ifEmpty { p.username }) }
-                                        MutedText(listOfNotNull(p.nickname.takeIf { it.isNotEmpty() }?.let { "@${p.username}" }, p.contentType, formatSize(p.bytes.toDouble())).joinToString(" · "), Modifier.fontSize(8.px))
-                                        Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).margin(top = 0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                                            PrimaryButton("Approve") { userAction(AdminUser(AdminProfile(username = p.username)), "approve-avatar", "Picture of ${p.username} approved.") }
-                                            ConfirmDangerButton("Reject", "Remove this picture?", "Yes, remove") { userAction(AdminUser(AdminProfile(username = p.username)), "clear-avatar", "Picture of ${p.username} removed.") }
-                                        }
-                                    }
-                                }
-                            }
+                            PendingPictureCard(
+                                p, onView = { viewing = p },
+                                onApprove = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "approve-avatar", "Picture of ${p.username} approved.") },
+                                onReject = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "clear-avatar", "Picture of ${p.username} removed.") }
+                            )
                         }
+                    }
+                    viewing?.let { p ->
+                        PendingPictureViewer(
+                            p,
+                            onApprove = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "approve-avatar", "Picture of ${p.username} approved.") },
+                            onReject = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "clear-avatar", "Picture of ${p.username} removed.") },
+                            onClose = { viewing = null }
+                        )
                     }
                 }
 

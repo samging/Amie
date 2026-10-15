@@ -39,6 +39,7 @@ interface PackageNoteRepository : JpaRepository<PackageNote, Long> {
     fun countByAuthorAndCreatedAtAfter(author: RestUserEntity, after: Instant): Long
     fun findByAuthor(author: RestUserEntity): List<PackageNote>
     fun countByAuthor(author: RestUserEntity): Long
+    fun countByCreatedAtAfter(after: Instant): Long
     fun deleteByPackagePath(packagePath: String): Long
 }
 
