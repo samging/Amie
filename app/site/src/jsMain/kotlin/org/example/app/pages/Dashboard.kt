@@ -51,6 +51,9 @@ fun Dashboard() {
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeKind by remember { mutableStateOf(BannerKind.INFO) }
     var filter by remember { mutableStateOf("") }
+    // Tree (folders as the store keeps them) or table; the choice is kept in this browser
+    var treeView by remember { mutableStateOf(runCatching { window.localStorage.getItem("amie.packagesView") }.getOrNull() != "table") }
+    var expanded by remember { mutableStateOf<Set<String>?>(null) }
     val flash = remember {
         when {
             !uploaded.isNullOrEmpty() -> "$uploaded was uploaded. It is in the list below and on the downloads page."
@@ -218,6 +221,10 @@ fun Dashboard() {
         }
 
         SectionHeading("Packages", id = "packages") {
+            Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).alignItems(AlignItems.Center).flexWrap(FlexWrap.Wrap).toAttrs { attr("role", "group"); attr("aria-label", "How the packages are shown") }) {
+                Chip("Tree", treeView) { treeView = true; runCatching { window.localStorage.setItem("amie.packagesView", "tree") } }
+                Chip("Table", !treeView) { treeView = false; runCatching { window.localStorage.setItem("amie.packagesView", "table") } }
+            }
             if (packages.size > 4) {
                 TextField(filter, { filter = it }, placeholder = "Filter by name…", modifier = Modifier.width(16.cssRem).height(2.cssRem).attrsModifier { attr("data-search", ""); attr("aria-label", "Filter packages") })
             }
@@ -231,6 +238,30 @@ fun Dashboard() {
                 action = { if (isOwner) LinkButton("Upload your first package", "/navigateto?username=${encodeURIComponent(username)}") else LinkButton("Browse other authors", "/", primary = false) }
             )
             visible.isEmpty() -> EmptyAction("Nothing matches “${filter.trim()}”.", action = { GhostButton("Clear the filter") { filter = "" } })
+            treeView -> {
+                // Folders are the language folders the store files packages under (uploads/<user>/<folder>/<file>)
+                val folders = visible.groupBy { item ->
+                    val path = item["path"] as? String ?: ""
+                    path.removePrefix("uploads/").substringAfter('/', "").substringBeforeLast('/', "").ifEmpty { "files" }
+                }.toList().sortedBy { it.first.lowercase() }
+                val nodes = folders.map { (folder, items) ->
+                    TreeNode("folder:$folder", folder, plural(items.size, "file") + " · " + formatSize(items.sumOf { (it["size"] as? Number)?.toDouble() ?: 0.0 }), children = items.sortedBy { (it["name"] as? String ?: "").lowercase() }.map { item ->
+                        val name = item["name"] as? String ?: "Unknown"
+                        val path = item["path"] as? String ?: ""
+                        val size = (item["size"] as? Number)?.toDouble() ?: 0.0
+                        val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
+                        val kind = PackageKind.of(name)
+                        val viewUrl = "/view?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&from=dashboard&url=${encodeURIComponent(downloadUrl)}"
+                        TreeNode("file:$path", name, formatSize(size), badge = kind.label, icon = { KindIcon(kind) }, href = viewUrl, actions = {
+                            PackageActions(name, path, viewUrl, downloadUrl, isOwner, username, ctx, scope, onNotice = { text, kind -> notice = text; noticeKind = kind }, reload = { load(refresh = true) })
+                        })
+                    })
+                }
+                val open = expanded ?: nodes.map { it.id }.toSet()
+                Card(Modifier.padding(0.4.cssRem, 0.6.cssRem)) {
+                    TreeView(nodes, open, onToggle = { id -> expanded = if (id in open) open - id else open + id })
+                }
+            }
             else -> TableScroll {
                 Table(DataTableStyle.toModifier().toAttrs()) {
                     Thead { Tr { Th { Text("Name") }; Th { Text("Kind") }; Th { Text("Size") }; Th { Text("") } } }
@@ -253,38 +284,7 @@ fun Dashboard() {
                                 Td { Text(formatSize(size)) }
                                 Td {
                                     Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                                        GhostButton("View") { ctx.router.navigateTo(viewUrl) }
-                                        if (downloadUrl.isNotEmpty()) LinkButton("Download", downloadUrl, download = true, primary = false)
-                                        if (isOwner) {
-                                            GhostButton("Replace") {
-                                                ctx.router.navigateTo("/edit?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}")
-                                            }
-                                            ConfirmDangerButton("Delete", "Delete $name for everyone?", "Yes, delete") {
-                                                scope.launch {
-                                                    notice = "Deleting $name…"
-                                                    noticeKind = BannerKind.INFO
-                                                    val token = AuthClient.accessToken()
-                                                    val result = runCatching {
-                                                        Http.get(AmieConfig.api("delete-package?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&token=${encodeURIComponent(token.orEmpty())}"))
-                                                    }.getOrNull()
-                                                    if (result?.ok == true) {
-                                                        ClientCache.removePrefix("packages:")
-                                                        ClientCache.remove("jars:list")
-                                                        notice = "$name was deleted."
-                                                        noticeKind = BannerKind.SUCCESS
-                                                        Toasts.show("$name was deleted.", BannerKind.SUCCESS)
-                                                        load(refresh = true)
-                                                    } else {
-                                                        notice = when (result?.status) {
-                                                            401 -> "Please sign in again to delete packages."
-                                                            403 -> "Only the author can delete this package."
-                                                            else -> "$name could not be deleted."
-                                                        }
-                                                        noticeKind = BannerKind.ERROR
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        PackageActions(name, path, viewUrl, downloadUrl, isOwner, username, ctx, scope, onNotice = { text, kind -> notice = text; noticeKind = kind }, reload = { load(refresh = true) })
                                     }
                                 }
                             }
@@ -295,6 +295,44 @@ fun Dashboard() {
         }
         if (isOwner && packages.isNotEmpty()) {
             HintText("Replace keeps the file name and swaps the content for everyone; Delete asks once before it removes the file.", Modifier.margin(top = 0.8.cssRem))
+        }
+    }
+}
+
+/** View, Download and, for the owner, Replace and Delete: the same buttons in the tree and in the table */
+@Composable
+private fun PackageActions(
+    name: String, path: String, viewUrl: String, downloadUrl: String, isOwner: Boolean, username: String,
+    ctx: com.varabyte.kobweb.core.PageContext, scope: kotlinx.coroutines.CoroutineScope,
+    onNotice: (String, BannerKind) -> Unit, reload: suspend () -> Unit,
+) {
+    GhostButton("View") { ctx.router.navigateTo(viewUrl) }
+    if (downloadUrl.isNotEmpty()) LinkButton("Download", downloadUrl, download = true, primary = false)
+    if (isOwner) {
+        GhostButton("Replace") {
+            ctx.router.navigateTo("/edit?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}")
+        }
+        ConfirmDangerButton("Delete", "Delete $name for everyone?", "Yes, delete") {
+            scope.launch {
+                onNotice("Deleting $name…", BannerKind.INFO)
+                val token = AuthClient.accessToken()
+                val result = runCatching {
+                    Http.get(AmieConfig.api("delete-package?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&token=${encodeURIComponent(token.orEmpty())}"))
+                }.getOrNull()
+                if (result?.ok == true) {
+                    ClientCache.removePrefix("packages:")
+                    ClientCache.remove("jars:list")
+                    onNotice("$name was deleted.", BannerKind.SUCCESS)
+                    Toasts.show("$name was deleted.", BannerKind.SUCCESS)
+                    reload()
+                } else {
+                    onNotice(when (result?.status) {
+                        401 -> "Please sign in again to delete packages."
+                        403 -> "Only the author can delete this package."
+                        else -> "$name could not be deleted."
+                    }, BannerKind.ERROR)
+                }
+            }
         }
     }
 }

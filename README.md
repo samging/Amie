@@ -177,7 +177,54 @@ In the browser, `config/AmieConfig.kt` derives the backend and Keycloak addresse
 
 Project Amie was created to simplify Arduino board management and bridge the gap between microcontrollers and cloud computing platforms. 
 
-> **Note on Project Status:** The project is currently in an unfinished, experimental state and lacks several core features. Because no formal tests have been written yet, expect unexpected runtime bugs.
+> **Note on Project Status:** The project is experimental and several features are unfinished. The backend and the
+> S3 service have unit tests (Mockito, see "Testing" below) and there is an end-to-end check of sign-in,
+> registration, publishing and SSO against the running stack; expect rough edges elsewhere.
+
+## Browsing files and models on the site
+
+The packages page and every author's dashboard show the store as a **tree**: the author, the folders the store
+files packages under (`jar`, `onnx`, `python`, …) and the files, each with View, Download and, for the owner,
+Replace and Delete. **Table** next to the tree switches back to the flat list; the choice is kept in the browser.
+
+Opening an `.onnx` file shows the model's structure: nodes, parameters, inputs → outputs, opset and producer as
+tiles, a chip per operator type that filters the graph, and a tree of Inputs, the Graph (every node in order with
+its inputs, outputs and attributes; weights named where a node reads them), Outputs, Weights and Metadata. The
+structure is read on the site's server by `api/onnx/OnnxReader.kt`, a protobuf walker that needs no ONNX library
+and never copies tensor contents, and served by `GET /api/model-info?package=` (cached five minutes; `422` for a
+file that is not ONNX, `404` for a missing one, files up to 256 MB). `./gradlew :site:jvmTest` in `app/` runs the
+reader's tests. Other model formats (`.bin`, `.pt`, `.safetensors`) only get the download button.
+
+A headless walkthrough of the site (sign-in through the app's SSO handoff, the trees, the model page, every file
+kind) is what `scripts/seed-site-content.py` is for: it publishes a jar, the desktop app's dummy ONNX model and a
+few text files under a throwaway user and prints the user's tokens; `--cleanup <seed.json>` removes it all again.
+
+## Testing
+
+Unit tests (JUnit 5 + Mockito, no services needed):
+
+```bash
+cd packageRepository && ./gradlew test     # the backend: controllers, user service, token verifier, package store client
+cd awsS3 && ./gradlew test                 # the S3 service: controllers, S3Service, jar inspection, the identity check
+```
+
+The backend's Spring context test (`AmiePackageRepositoryApplicationTests`) is left out by default because it needs
+Postgres and the Google Drive credentials; `-PexcludeTests=''` includes it.
+
+End to end, against the running stack (`./run.sh` first; Keycloak in docker, Postgres, AWS credentials):
+
+```bash
+python3 scripts/e2e-auth-publish.py
+```
+
+It registers and signs in a backend account (also through the site's `/api/login` and `/api/register`), creates a
+throwaway Keycloak user through the admin API, signs it in the way the desktop app does (password grant, refresh,
+logout, and the browser flow with PKCE on the loopback redirect), checks that the backend accepts the Keycloak
+token (`/me`), publishes a package jar (`/upload` with the token, the site's `/api/upload` proxy, the listings,
+`DELETE /upload`), refuses a bad jar and another user's name, keeps and reads a saved state and an error entry,
+and runs the site's SSO handoff (`/api/sso/handoff` → `/api/sso/claim`, once only) and `/api/keycloak/token`.
+Every check prints PASS or FAIL; everything it created is removed at the end (the Keycloak user, the backend
+accounts, the rows the backend made for them, the jar in the bucket).
 
 ### Architectural Vision
 Bare-metal microcontrollers are incredibly affordable solutions that can act as the perfect "middlemen" for harvesting real-world data—such as voice signals, button events, and general IoT telemetry. Through Amie's Android UI, users can seamlessly manage, track, and toggle these connected Arduino boards.

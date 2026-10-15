@@ -51,6 +51,10 @@ kotlin {
         }
 
         // Uncomment this block so backend code (`jvmMain`) is recognized:
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+        }
+
         jvmMain.dependencies {
             implementation(libs.compose.runtime)
             implementation(libs.kobweb.api)

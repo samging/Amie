@@ -70,7 +70,16 @@ object AuthClient {
         val result = runCatching { Http.postForm(AmieConfig.api("sso/claim"), mapOf("code" to code)) }.getOrNull()
             ?: return SignIn.Failure("The sign-in service is unavailable.")
         if (result.status == 404) return SignIn.Failure("This sign-in link was already used or has expired. Open the website from the app again.")
-        return establish(result, wrongCredentials = "The sign-in from the app could not be completed.")
+        val outcome = establish(result, wrongCredentials = "The sign-in from the app could not be completed.")
+        if (outcome is SignIn.Failure && outcome.message.contains("expired")) {
+            // The app's access token ran out between the handoff and the claim; its refresh token still works
+            val refreshToken = runCatching { jwtJson.parseToJsonElement(result.text).jsonObject.string("refresh_token") }.getOrNull()
+            if (!refreshToken.isNullOrEmpty()) {
+                val refreshed = runCatching { Http.postForm(tokenUrl, mapOf("refresh_token" to refreshToken)) }.getOrNull()
+                if (refreshed != null) return establish(refreshed, wrongCredentials = "The sign-in from the app could not be completed.")
+            }
+        }
+        return outcome
     }
 
     /** Starts the "scan to sign in" flow; null when the realm does not offer it. */

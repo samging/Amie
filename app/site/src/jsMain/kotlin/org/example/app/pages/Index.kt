@@ -90,6 +90,9 @@ fun IndexPage() {
     var author by remember { mutableStateOf<String?>(null) }
     var sort by remember { mutableStateOf("name") }
     var recent by remember { mutableStateOf(Recent.list()) }
+    // Tree (author → folder → file) or table; the choice is kept in this browser
+    var treeView by remember { mutableStateOf(runCatching { window.localStorage.getItem("amie.packagesView") }.getOrNull() != "table") }
+    var expanded by remember { mutableStateOf<Set<String>?>(null) }
 
     suspend fun loadAll(refresh: Boolean) {
         loading = true
@@ -209,7 +212,13 @@ fun IndexPage() {
                         if (count > 0) Chip(k.plural, kind == k, count) { kind = if (kind == k) null else k }
                     }
                 }
-                SelectField(sort, sortOptions, { sort = it }, ariaLabel = "Sort packages")
+                Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).alignItems(AlignItems.Center).flexWrap(FlexWrap.Wrap).toAttrs()) {
+                    Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).toAttrs { attr("role", "group"); attr("aria-label", "How the packages are shown") }) {
+                        Chip("Tree", treeView) { treeView = true; runCatching { window.localStorage.setItem("amie.packagesView", "tree") } }
+                        Chip("Table", !treeView) { treeView = false; runCatching { window.localStorage.setItem("amie.packagesView", "table") } }
+                    }
+                    SelectField(sort, sortOptions, { sort = it }, ariaLabel = "Sort packages")
+                }
             }
         }
 
@@ -297,6 +306,26 @@ fun IndexPage() {
                             if (query.isNotBlank() && storeResults == null) PrimaryButton("Search the whole store") { scope.launch { searchStore() } }
                         }
                     )
+                }
+            } else if (treeView) {
+                // Authors as the top folders, the store's language folders under them, files inside
+                val byAuthor = shown.groupBy { it.author.ifEmpty { "unknown" } }.toList().sortedBy { it.first.lowercase() }
+                val nodes = byAuthor.map { (name, files) ->
+                    val folders = files.groupBy { it.path.removePrefix("uploads/").substringAfter('/', "").substringBeforeLast('/', "").ifEmpty { "files" } }.toList().sortedBy { it.first.lowercase() }
+                    TreeNode("author:$name", name, plural(files.size, "package") + " · " + formatSize(files.sumOf { it.size }), href = null,
+                        actions = { LinkButton("Profile", "/dashboard?username=${encodeURIComponent(name)}", primary = false) },
+                        children = folders.map { (folder, items) ->
+                            TreeNode("author:$name:$folder", folder, plural(items.size, "file"), children = items.map { entry ->
+                                TreeNode("file:${entry.path}", entry.name, formatSize(entry.size), badge = entry.kind.label, icon = { KindIcon(entry.kind) }, href = entry.viewUrl, actions = {
+                                    if (entry.downloadUrl.isNotEmpty()) LinkButton("Download", entry.downloadUrl, download = true, primary = false)
+                                    CopyButton(window.location.origin + entry.viewUrl, label = "Copy link", toast = "Link to ${entry.name} copied.")
+                                })
+                            })
+                        })
+                }
+                val open = expanded ?: nodes.flatMap { listOf(it.id) + it.children.map { c -> c.id } }.toSet()
+                Card(Modifier.padding(0.4.cssRem, 0.6.cssRem)) {
+                    TreeView(nodes, open, onToggle = { id -> expanded = if (id in open) open - id else open + id })
                 }
             } else {
                 // Narrow screens get one card per package instead of a table that has to scroll sideways

@@ -22,6 +22,7 @@ import kotlinx.coroutines.await
 import kotlinx.coroutines.delay
 import org.example.app.components.Catalog
 import org.example.app.components.ClientCache
+import org.example.app.components.OnnxModelView
 import org.example.app.components.Http
 import org.example.app.components.JarPrecheck
 import org.example.app.components.PackageKind
@@ -281,9 +282,17 @@ fun ViewPage() {
                 }
                 JarContents(name, downloadUrl, size)
             }
+            kind == PackageKind.MODEL && name.endsWith(".onnx", ignoreCase = true) -> {
+                Card(Modifier.margin(bottom = 1.5.cssRem)) {
+                    Div(Modifier.fontSize(12.px).margin(bottom = 0.5.cssRem).toAttrs()) { Text("An ONNX model") }
+                    MutedText("Published by the Amie desktop app and opened from its Models page, or from a script with importModelOnnx. Its structure is below; nothing runs here.")
+                    Div(Modifier.margin(top = 0.6.cssRem).toAttrs()) { LinkButton("Models in the app", "/docs/models", primary = false) }
+                }
+                OnnxModelView(packagePath)
+            }
             kind == PackageKind.MODEL -> Card {
                 Div(Modifier.fontSize(12.px).margin(bottom = 0.5.cssRem).toAttrs()) { Text("This is a model file") }
-                MutedText("Models are published by the Amie desktop app and opened from its Models page; there is no preview here. Use Download to get the file.")
+                MutedText("Models are published by the Amie desktop app and opened from its Models page; only ONNX files have a preview here. Use Download to get the file.")
                 Div(Modifier.margin(top = 0.6.cssRem).toAttrs()) { LinkButton("Models in the app", "/docs/models", primary = false) }
             }
             isBinary -> Card { MutedText("This is a binary package. Use the download button to get it.") }
