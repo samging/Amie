@@ -106,6 +106,24 @@ page for one that fits the site.
 | `/admin` | For Keycloak accounts with the `admin` role (`AMIE_ADMIN_ROLE`): remove any package or build (with a confirmation step), publish application builds |
 | any other address | A 404 page with suggestions for the page that was probably meant |
 
+The header carries three links, Packages, Downloads and Docs, and a search. Everything personal sits in the
+**account menu** behind your picture and name: Dashboard, Profile, Upload a package, and for administrators
+Administration and Inbox with a red count of what waits. Long pages are split into **tabs** whose names live in
+the address (`/admin#people`, `/dashboard?username=…#devices`, `/profile#publications`), so a link opens the
+right tab and a reload stays on it: the dashboard has Packages, Devices, Links & publications and, for the owner,
+App errors; the profile has Profile, Publications, Inbox (administrators) and Account; the admin page has Inbox,
+People, Store & downloads and Publish a build.
+
+The page background is plain black, with no animated backdrop. Two kinds of button: the chunky pixel buttons
+with their hard shadow for page actions and for authors (the Profile button on an author's band), and a quiet
+thin-bordered button (`plain = true` on `LinkButton`, `CopyButton`, `GhostButton`, `ConfirmDangerButton`) on
+every row of files, models and builds.
+
+Colour tells things apart without shouting (`components/widgets/Colors.kt`): every author has their own hue,
+the same on every page (card edge, initials, tree row), every file kind its own (jar indigo, model lavender,
+JSON sand, Python moss, text slate) on icons, badges and filter chips, and every granted badge its own. Tones
+are soft mid-lightness colours used as tints and edges, so they read on the black and on the white theme.
+
 Everywhere: `⌘K` / `Ctrl+K` (or the magnifier in the header) opens a search over pages, authors, packages, docs pages
 and docs sections (`scripts/docs-index.sh` writes that index into `DocsIndex.kt`; `sync-docs.sh` runs it); `/` jumps to
 the page's own filter box; copy actions confirm with a small toast; the header marks the current section.
@@ -319,6 +337,21 @@ APIs, never by the browser. The handles are validated against the services' user
 server only ever calls `api.github.com/users/<login>/repos` and `huggingface.co/api/models?author=<login>`,
 and only `https://github.com/…` and `https://huggingface.co/…` links are rendered. Nothing is verified or
 signed in: the section says "as stated by the author".
+
+**Profile background.** A person can upload a banner (PNG, JPEG, GIF or WebP up to 2 MB and 4096 px) on
+`/profile`; it shows behind the header of their dashboard and profile with a dark gradient so the text stays
+readable. Without one, the header is the person's colour. Like the picture it waits for an administrator
+(`GET /background?username=` is 404 until approved; the owner previews it through `/api/background-preview`;
+the admin inbox lists it with `kind: background`, approve with `POST /admin/users/{u}/avatar/approve?kind=background`,
+reject with `DELETE /admin/users/{u}/background`). Routes: `GET`/`POST`/`DELETE /background?username=`, proxied as
+`/api/background`, `/api/background-preview`, `/api/background-delete`.
+
+**Downloads and likes.** Every Download button on the site counts a download (`POST /stats/download?path=`,
+sent as the file starts), and a signed-in person can like (save) a package (`POST /likes?path=` toggles;
+`GET /likes` lists theirs; the profile's Saved tab shows them). `GET /stats?username=` returns downloads and
+likes per package of an author, and a dashboard's package list can be sorted by name, most downloaded or most
+liked (the choice is remembered in the browser). Counts are removed with the package and a person's likes with
+their account. Site routes: `/api/stats?username=`, `/api/track-download?package=`, `/api/like?package=`, `/api/likes`.
 
 **Publications** (papers, theses, articles) are added on `/profile` and listed on the dashboard:
 `GET /publications?username=`, `POST /publications` `{title, venue, year, url, doi}`, `DELETE

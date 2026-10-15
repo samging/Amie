@@ -47,11 +47,17 @@ enum class BadgeTone { OUTLINE, FILLED, MUTED }
 
 /** A small uppercase label: a file kind, a platform, a state. */
 @Composable
-fun Badge(text: String, tone: BadgeTone = BadgeTone.OUTLINE, modifier: Modifier = Modifier) {
+fun Badge(text: String, tone: BadgeTone = BadgeTone.OUTLINE, modifier: Modifier = Modifier, color: Tone? = null) {
     val palette = ColorMode.current.toSitePalette()
     val base = Modifier
         .display(DisplayStyle.InlineBlock).fontSize(8.px).lineHeight(1)
         .padding(0.3.cssRem, 0.45.cssRem).textTransform(TextTransform.Uppercase).whiteSpace(WhiteSpace.NoWrap)
+    if (color != null) {
+        // A coloured badge: the tone's tint behind, its edge around, the theme's text colour on top
+        val dark = ColorMode.current == ColorMode.DARK
+        SpanText(text, base.backgroundColor(color.tint(if (dark) 0.28f else 0.22f)).border(2.px, LineStyle.Solid, color.edge()).color(if (dark) Colors.White else Color.rgb(0x151A22)).then(modifier))
+        return
+    }
     val toned = when (tone) {
         BadgeTone.OUTLINE -> base.border(2.px, LineStyle.Solid, palette.border).color(Colors.White)
         BadgeTone.FILLED -> base.border(2.px, LineStyle.Solid, Colors.White).backgroundColor(Colors.White).color(Colors.Black)
@@ -275,7 +281,8 @@ fun CopyButton(
     toast: String? = "Link copied to the clipboard.",
     primary: Boolean = false,
     enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    plain: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     var copied by remember { mutableStateOf(false) }
@@ -291,8 +298,9 @@ fun CopyButton(
             }
         }
     }
-    if (primary) PrimaryButton(if (copied) done else label, modifier, enabled, click)
-    else GhostButton(if (copied) done else label, modifier, enabled, click)
+    if (plain) PlainButton(if (copied) done else label, modifier, enabled, click)
+    else if (primary) PrimaryButton(if (copied) done else label, modifier, enabled, onClick = click)
+    else GhostButton(if (copied) done else label, modifier, enabled, onClick = click)
 }
 
 /**
@@ -305,6 +313,7 @@ fun ConfirmDangerButton(
     question: String = "Are you sure?",
     confirmText: String = "Yes, delete",
     enabled: Boolean = true,
+    plain: Boolean = false,
     onConfirm: () -> Unit
 ) {
     var armed by remember { mutableStateOf(false) }
@@ -315,12 +324,12 @@ fun ConfirmDangerButton(
         }
     }
     if (!armed) {
-        DangerButton(text, enabled = enabled) { armed = true }
+        DangerButton(text, enabled = enabled, plain = plain) { armed = true }
     } else {
         Div(Modifier.display(DisplayStyle.LegacyInlineFlex).alignItems(AlignItems.Center).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs { attr("role", "alertdialog") }) {
             MutedText(question, Modifier.whiteSpace(WhiteSpace.NoWrap))
-            DangerButton(confirmText) { armed = false; onConfirm() }
-            GhostButton("Cancel") { armed = false }
+            DangerButton(confirmText, plain = plain) { armed = false; onConfirm() }
+            GhostButton("Cancel", plain = plain) { armed = false }
         }
     }
 }

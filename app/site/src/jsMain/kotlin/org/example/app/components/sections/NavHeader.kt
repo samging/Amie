@@ -11,6 +11,7 @@ import com.varabyte.kobweb.compose.ui.Modifier
 import com.varabyte.kobweb.compose.ui.graphics.Colors
 import com.varabyte.kobweb.compose.ui.modifiers.*
 import com.varabyte.kobweb.compose.ui.styleModifier
+import com.varabyte.kobweb.compose.ui.toAttrs
 import com.varabyte.kobweb.core.rememberPageContext
 import com.varabyte.kobweb.silk.components.graphics.Image
 import com.varabyte.kobweb.silk.components.icons.CloseIcon
@@ -35,6 +36,14 @@ import org.example.app.auth.AuthClient
 import org.example.app.auth.AuthSession
 import org.example.app.components.Platform
 import org.example.app.components.AdminInboxLink
+import org.example.app.components.RedCount
+import org.example.app.components.loadAdminInbox
+import org.example.app.components.widgets.Avatar
+import org.example.app.components.widgets.PublicProfile
+import org.example.app.components.widgets.loadPublicProfile
+import org.jetbrains.compose.web.dom.Div
+import org.jetbrains.compose.web.dom.Span
+import org.jetbrains.compose.web.dom.Text
 import org.example.app.components.widgets.GhostButton
 import org.example.app.components.widgets.IconButton
 import org.example.app.components.widgets.InlineSvg
@@ -77,25 +86,100 @@ private fun NavLink(path: String, text: String, active: Boolean) {
     ) 
 }
 
+/** The three places everyone goes; everything personal lives in the account menu. */
 @Composable
-private fun MenuItems(username: String?, current: String) {
+private fun MenuItems(username: String?, current: String, full: Boolean = false) {
     NavLink("/", "Packages", current == "/")
     NavLink("/downloads", "Downloads", current == "/downloads")
     NavLink("/docs", "Docs", current == "/docs")
-    NavLink("/navigateto", "Upload", current == "/navigateto")
-    if (username != null) NavLink("/dashboard?username=$username", "Dashboard", current == "/dashboard")
-    if (AuthSession.isAdmin) NavLink("/admin", "Admin", current == "/admin")
-    AdminInboxLink(active = false)
+    if (full) {
+        NavLink("/navigateto", "Upload", current == "/navigateto")
+        if (username != null) NavLink("/dashboard?username=$username", "Dashboard", current == "/dashboard")
+        if (username != null) NavLink("/profile", "Profile", current == "/profile")
+        if (AuthSession.isAdmin) NavLink("/admin", "Admin", current == "/admin")
+        AdminInboxLink(active = false)
+    }
 }
 
 @Composable
 private fun AccountItems(username: String?, compact: Boolean) {
     if (username != null) {
-        Link("/profile", username, Modifier.fontSize(10.px).color(Colors.White), variant = UndecoratedLinkVariant.then(UncoloredLinkVariant))
-        Tooltip(ElementTarget.PreviousSibling, "Your profile", placement = PopupPlacement.Bottom)
-        GhostButton("Sign out") { AuthClient.signOut() }
+        if (compact) GhostButton("Sign out") { AuthClient.signOut() } else AccountMenu(username)
     } else {
         LinkButton("Sign in", "/loginpage")
+    }
+}
+
+/**
+ * The signed-in person's menu: their picture or initials and name open a list with Dashboard, Profile,
+ * Upload, and for administrators Admin and Inbox (with the red count), then Sign out. Closes on a click
+ * outside, on Escape, or after choosing. The red count also sits on the button so it is seen while closed.
+ */
+@Composable
+private fun AccountMenu(username: String) {
+    var open by remember { mutableStateOf(false) }
+    var profile by remember { mutableStateOf(PublicProfile(username = username)) }
+    var inbox by remember { mutableStateOf(0L) }
+    val palette = ColorMode.current.toSitePalette()
+    LaunchedEffect(username) {
+        profile = loadPublicProfile(username)
+        inbox = loadAdminInbox()?.total ?: 0L
+    }
+    DisposableEffect(open) {
+        if (!open) return@DisposableEffect onDispose { }
+        val close: (org.w3c.dom.events.Event) -> Unit = { e -> if (e !is org.w3c.dom.events.KeyboardEvent || e.key == "Escape") open = false }
+        kotlinx.browser.window.addEventListener("click", close)
+        kotlinx.browser.window.addEventListener("keydown", close)
+        onDispose { kotlinx.browser.window.removeEventListener("click", close); kotlinx.browser.window.removeEventListener("keydown", close) }
+    }
+    Div(Modifier.position(Position.Relative).toAttrs { onClick { it.stopPropagation() } }) {
+        Div(
+            Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.5.cssRem).cursor(com.varabyte.kobweb.compose.css.Cursor.Pointer)
+                .padding(0.25.cssRem, 0.5.cssRem).border(2.px, LineStyle.Solid, if (open) Colors.White else Colors.Transparent)
+                .toAttrs {
+                    attr("role", "button"); attr("tabindex", "0"); attr("aria-haspopup", "menu"); attr("aria-expanded", open.toString()); attr("aria-label", "Account menu for $username")
+                    onClick { open = !open }
+                    onKeyDown { if (it.key == "Enter" || it.key == " ") { it.preventDefault(); open = !open } }
+                }
+        ) {
+            Avatar(profile, size = 1.6.cssRem)
+            Span(Modifier.fontSize(10.px).color(Colors.White).toAttrs()) { Text(profile.displayName) }
+            RedCount(inbox, "items in the inbox")
+            Span(Modifier.fontSize(8.px).color(palette.muted).toAttrs { attr("aria-hidden", "true") }) { Text(if (open) "▴" else "▾") }
+        }
+        if (open) {
+            Div(
+                Modifier.position(Position.Absolute).top(100.percent).right(0.px).margin(top = 0.4.cssRem).minWidth(13.cssRem).zIndex(30)
+                    .backgroundColor(palette.nearBackground).border(2.px, LineStyle.Solid, Colors.White).padding(0.4.cssRem)
+                    .display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).gap(0.1.cssRem)
+                    .toAttrs { attr("role", "menu") }
+            ) {
+                MenuEntry("/dashboard?username=$username", "Dashboard", "your packages, devices and errors")
+                MenuEntry("/profile", "Profile", "picture, nickname, links, publications")
+                MenuEntry("/navigateto?username=$username", "Upload a package", "publish a jar")
+                if (AuthSession.isAdmin) {
+                    MenuEntry("/admin", "Administration", "people, notes, store, builds")
+                    MenuEntry("/admin#inbox", "Inbox", if (inbox > 0) "$inbox waiting" else "nothing waiting", count = inbox)
+                }
+                Div(Modifier.borderTop(1.px, LineStyle.Solid, palette.border).margin(topBottom = 0.3.cssRem).toAttrs())
+                Div(
+                    Modifier.padding(0.45.cssRem, 0.6.cssRem).fontSize(10.px).cursor(com.varabyte.kobweb.compose.css.Cursor.Pointer).color(Colors.White)
+                        .toAttrs { attr("role", "menuitem"); attr("tabindex", "0"); onClick { AuthClient.signOut() }; onKeyDown { if (it.key == "Enter") AuthClient.signOut() } }
+                ) { Text("Sign out") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuEntry(path: String, label: String, hint: String, count: Long = 0) {
+    val palette = ColorMode.current.toSitePalette()
+    Link(path, Modifier.display(DisplayStyle.Block).padding(0.45.cssRem, 0.6.cssRem).color(Colors.White).styleModifier { property("text-decoration", "none") }, variant = UndecoratedLinkVariant.then(UncoloredLinkVariant)) {
+        Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.4.cssRem).fontSize(10.px).styleModifier { property("text-decoration", "none") }.toAttrs()) {
+            Text(label)
+            RedCount(count, "waiting")
+        }
+        Div(Modifier.fontSize(8.px).color(palette.muted).styleModifier { property("text-decoration", "none") }.toAttrs()) { Text(hint) }
     }
 }
 
@@ -191,7 +275,7 @@ private fun SideMenu(menuState: SideMenuState, username: String?, current: Strin
             ) {
                 IconButton(onClick = { close() }) { CloseIcon() }
                 Column(Modifier.padding(right = 0.75.cssRem).gap(1.25.cssRem).fontSize(1.3.cssRem), horizontalAlignment = Alignment.End) {
-                    MenuItems(username, current)
+                    MenuItems(username, current, full = true)
                     NavLink("/about", "About", current == "/about")
                     GhostButton("Search") { close(); Palette.open() }
                     AccountItems(username, compact = true)

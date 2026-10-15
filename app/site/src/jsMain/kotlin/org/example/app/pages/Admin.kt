@@ -72,6 +72,7 @@ fun AdminPage() {
     var peopleFilter by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<List<PendingAvatar>>(emptyList()) }
     var viewing by remember { mutableStateOf<PendingAvatar?>(null) }
+    val tab = rememberTab("inbox", listOf("inbox", "people", "store", "publish"))
 
     suspend fun bearer(): Map<String, String> = Http.bearer(AuthClient.accessToken())
 
@@ -231,17 +232,25 @@ fun AdminPage() {
                 StatusBanner(notice, noticeKind, Modifier.margin(bottom = 1.cssRem))
 
                 StatRow {
-                    StatTile("App builds", builds.size.toString(), builds.mapNotNull { it.lastModified }.maxOrNull()?.let { "latest ${formatRelative(it)}" })
-                    StatTile("Package jars", (jars.size - builds.size).toString(), "in the bucket listing")
-                    StatTile("Store files", packages.size.toString(), plural(packages.map { it.author }.filter { it.isNotEmpty() }.distinct().size, "author"))
-                    StatTile("Store size", formatSize(packages.sumOf { it.size }))
+                    StatTile("Inbox", pending.size.toString(), if (pending.isEmpty()) "nothing to approve" else plural(pending.size, "picture") + " to approve")
                     StatTile("People", people.size.toString(), plural(people.count { it.profile.hasAvatar }, "picture") + " · " + plural(people.count { it.profile.nickname.isNotEmpty() }, "nickname"))
-                    StatTile("Notes", latestNotes.size.toString(), "latest 100 shown below")
-                    StatTile("Inbox", pending.size.toString(), if (pending.isEmpty()) "nothing to approve" else "pictures to approve or reject below")
+                    StatTile("Store", packages.size.toString(), formatSize(packages.sumOf { it.size }) + " · " + plural(packages.map { it.author }.filter { it.isNotEmpty() }.distinct().size, "author"))
+                    StatTile("App builds", builds.size.toString(), builds.mapNotNull { it.lastModified }.maxOrNull()?.let { "latest ${formatRelative(it)}" } ?: "none published")
                 }
 
+                TabBar(
+                    listOf(
+                        Tab("inbox", "Inbox", pending.size, alert = true),
+                        Tab("people", "People", people.size),
+                        Tab("store", "Store & downloads", packages.size + jars.size),
+                        Tab("publish", "Publish a build"),
+                    ),
+                    tab.value
+                ) { tab.value = it }
+
+                if (tab.value == "inbox") {
                 // Pictures waiting for approval
-                SectionHeading("Pictures waiting for approval")
+                SectionHeading("Pictures and backgrounds waiting for approval")
                 MutedText("A picture is shown next to a person's packages and notes only after one of you approves it. Reject removes it.", Modifier.margin(bottom = 0.6.cssRem))
                 if (pending.isEmpty()) {
                     Card(Modifier.margin(bottom = 2.cssRem)) { MutedText(if (loading) "Loading…" else "No pictures are waiting.") }
@@ -250,21 +259,23 @@ fun AdminPage() {
                         for (p in pending) {
                             PendingPictureCard(
                                 p, onView = { viewing = p },
-                                onApprove = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "approve-avatar", "Picture of ${p.username} approved.") },
-                                onReject = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "clear-avatar", "Picture of ${p.username} removed.") }
+                                onApprove = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), if (p.isBackground) "approve-background" else "approve-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} approved.") },
+                                onReject = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), if (p.isBackground) "clear-background" else "clear-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} removed.") }
                             )
                         }
                     }
                     viewing?.let { p ->
                         PendingPictureViewer(
                             p,
-                            onApprove = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "approve-avatar", "Picture of ${p.username} approved.") },
-                            onReject = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), "clear-avatar", "Picture of ${p.username} removed.") },
+                            onApprove = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), if (p.isBackground) "approve-background" else "approve-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} approved.") },
+                            onReject = { viewing = null; userAction(AdminUser(AdminProfile(username = p.username)), if (p.isBackground) "clear-background" else "clear-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} removed.") },
                             onClose = { viewing = null }
                         )
                     }
                 }
 
+                }
+                if (tab.value == "publish") {
                 // Publish a build
                 Card(Modifier.margin(bottom = 2.cssRem)) {
                     SectionHeading("Publish an application build")
@@ -283,6 +294,8 @@ fun AdminPage() {
                     if (publishing) HintText("Large builds take a while; keep this page open.", Modifier.margin(top = 0.3.cssRem))
                 }
 
+                }
+                if (tab.value == "store") {
                 // Bucket contents
                 SectionHeading("Downloads (bucket)") {
                     if (jars.size > 4) TextField(bucketFilter, { bucketFilter = it }, "Filter…", modifier = Modifier.width(14.cssRem).height(2.cssRem).attrsModifier { attr("aria-label", "Filter bucket") })
@@ -304,8 +317,8 @@ fun AdminPage() {
                                         Td { SpanText(formatRelative(jar.lastModified), Modifier.whiteSpace(WhiteSpace.NoWrap).attrsModifier { attr("title", formatDate(jar.lastModified)) }) }
                                         Td {
                                             Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                                                LinkButton("Download", AmieConfig.downloadUrl(jar.name, jar.kind, jar.size), download = true, primary = false)
-                                                ConfirmDangerButton("Remove", "Remove ${jar.name} from the bucket?", "Yes, remove") { deleteJar(jar) }
+                                                LinkButton("Download", AmieConfig.downloadUrl(jar.name, jar.kind, jar.size), download = true, plain = true)
+                                                ConfirmDangerButton("Remove", "Remove ${jar.name} from the bucket?", "Yes, remove", plain = true) { deleteJar(jar) }
                                             }
                                         }
                                     }
@@ -315,6 +328,8 @@ fun AdminPage() {
                     }
                 }
 
+                }
+                if (tab.value == "people") {
                 // People
                 SectionHeading("People") {
                     if (people.size > 4) TextField(peopleFilter, { peopleFilter = it }, "Filter by name…", modifier = Modifier.width(14.cssRem).height(2.cssRem).attrsModifier { attr("aria-label", "Filter people") })
@@ -343,7 +358,7 @@ fun AdminPage() {
                                             Div(Modifier.display(DisplayStyle.Flex).gap(0.3.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
                                                 for ((key, labelAndMeaning) in BADGE_LABELS) {
                                                     val has = key in p.badges
-                                                    Span(Modifier.toAttrs { attr("title", labelAndMeaning.second) }) { Chip(labelAndMeaning.first, has) { badgeAction(person, key, !has) } }
+                                                    Span(Modifier.toAttrs { attr("title", labelAndMeaning.second) }) { ToneChip(labelAndMeaning.first, has, SiteTones.ofBadge(key)) { badgeAction(person, key, !has) } }
                                                 }
                                             }
                                         }
@@ -363,6 +378,8 @@ fun AdminPage() {
                     }
                 }
 
+                }
+                if (tab.value == "inbox") {
                 // Notes
                 SectionHeading("Latest notes")
                 if (latestNotes.isEmpty()) {
@@ -376,7 +393,7 @@ fun AdminPage() {
                                     MutedText("on", Modifier.fontSize(8.px))
                                     A("/view?package=${encodeURIComponent(note.packagePath)}") { Text(note.packagePath.removePrefix("uploads/")) }
                                     MutedText(formatRelative(note.createdAt), Modifier.fontSize(8.px))
-                                    Span(Modifier.styleModifier { property("margin-left", "auto") }.toAttrs()) { ConfirmDangerButton("Remove", "Remove this note?", "Yes, remove") { deleteNote(note) } }
+                                    Span(Modifier.styleModifier { property("margin-left", "auto") }.toAttrs()) { ConfirmDangerButton("Remove", "Remove this note?", "Yes, remove", plain = true) { deleteNote(note) } }
                                 }
                                 // Text node: shown as typed, never interpreted
                                 P(Modifier.margin(top = 0.3.cssRem, bottom = 0.px).fontSize(9.px).whiteSpace(WhiteSpace.PreWrap).styleModifier { property("overflow-wrap", "anywhere") }.toAttrs()) { Text(note.text.take(600) + if (note.text.length > 600) "…" else "") }
@@ -385,6 +402,8 @@ fun AdminPage() {
                     }
                 }
 
+                }
+                if (tab.value == "store") {
                 // Package store
                 SectionHeading("Package store") {
                     if (packages.size > 4) TextField(storeFilter, { storeFilter = it }, "Filter by name or author…", modifier = Modifier.width(16.cssRem).height(2.cssRem).attrsModifier { attr("aria-label", "Filter store") })
@@ -406,8 +425,8 @@ fun AdminPage() {
                                         Td { Text(formatSize(pkg.size)) }
                                         Td {
                                             Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                                                GhostButton("View") { ctx.router.navigateTo(pkg.viewUrl) }
-                                                ConfirmDangerButton("Remove", "Remove ${pkg.name} for everyone?", "Yes, remove") { deletePackage(pkg) }
+                                                GhostButton("View", plain = true) { ctx.router.navigateTo(pkg.viewUrl) }
+                                                ConfirmDangerButton("Remove", "Remove ${pkg.name} for everyone?", "Yes, remove", plain = true) { deletePackage(pkg) }
                                             }
                                         }
                                     }
@@ -415,6 +434,7 @@ fun AdminPage() {
                             }
                         }
                     }
+                }
                 }
             }
         }

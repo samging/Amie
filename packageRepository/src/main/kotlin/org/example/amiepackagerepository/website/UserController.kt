@@ -321,6 +321,40 @@ class UserController(
             .body(avatar.bytes)
     }
 
+    /** The profile background, same rules and headers as the picture; `preview=true` with the owner's or an admin's token shows one still waiting. */
+    @GetMapping("/background")
+    fun background(
+        @RequestParam username: String,
+        @RequestParam(defaultValue = "false") preview: Boolean,
+        @RequestHeader("Authorization", required = false) authHeader: String?,
+    ): ResponseEntity<ByteArray> {
+        val includePending = preview && authHeader != null && (
+            runCatching { userService.requireSubject(authHeader) == username }.getOrDefault(false) || adminAccess.isAdmin(authHeader)
+        )
+        val image = userService.getBackground(username, includePending) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "No background")
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(image.contentType))
+            .cacheControl(if (includePending) CacheControl.noStore() else CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic())
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Content-Disposition", "inline; filename=\"background\"")
+            .header("Content-Security-Policy", "default-src 'none'; sandbox")
+            .body(image.bytes)
+    }
+
+    @PostMapping("/background")
+    fun setBackground(@RequestParam username: String, @RequestParam("file") file: MultipartFile, @RequestHeader("Authorization") authHeader: String): Map<String, Any> {
+        userService.requireUser(authHeader, username)
+        if (file.size > AvatarValidator.BACKGROUND_MAX_BYTES) throw ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "A background may be at most ${AvatarValidator.BACKGROUND_MAX_BYTES / 1024} KB")
+        val image = userService.setBackground(username, file.bytes)
+        return mapOf("ok" to true, "contentType" to image.contentType, "bytes" to image.bytes.size)
+    }
+
+    @DeleteMapping("/background")
+    fun clearBackground(@RequestParam username: String, @RequestHeader("Authorization") authHeader: String): ResponseEntity<Void> {
+        userService.requireUser(authHeader, username)
+        return if (userService.clearBackground(username)) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
+    }
+
     /** Sets the caller's own picture (multipart `file`): 400 with the reason for anything but a small PNG, JPEG, GIF or WebP. */
     @PostMapping("/avatar")
     fun setAvatar(@RequestParam username: String, @RequestParam("file") file: MultipartFile, @RequestHeader("Authorization") authHeader: String): Map<String, Any> {

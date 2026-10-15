@@ -42,13 +42,14 @@ class UserServiceTest {
     @Mock private lateinit var notes: org.example.amiepackagerepository.shared.notes.PackageNoteRepository
     @Mock private lateinit var badgeRows: org.example.amiepackagerepository.shared.badges.UserBadgeRepository
     @Mock private lateinit var publicationRows: org.example.amiepackagerepository.shared.publications.PublicationRepository
+    @Mock private lateinit var likeRows: org.example.amiepackagerepository.shared.stats.PackageLikeRepository
 
     private lateinit var service: UserService
     private val encoder = BCryptPasswordEncoder()
 
     @BeforeEach
     fun setUp() {
-        service = UserService(users, activities, verifier, devices, notes, badgeRows, publicationRows)
+        service = UserService(users, activities, verifier, devices, notes, badgeRows, publicationRows, likeRows)
     }
 
     private fun userRow(username: String = "sam", password: String = "pw", id: Long = 5) =

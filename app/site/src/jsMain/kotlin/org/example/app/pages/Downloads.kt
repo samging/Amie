@@ -141,14 +141,14 @@ fun DownloadsPage() {
                         MutedText(listOfNotNull(app.version?.let { "Version $it" }, formatSize(app.size.toDouble()), app.lastModified?.let { "updated ${formatRelative(it)}" }).joinToString(" · "))
                         HintText(installHint(app.name), Modifier.margin(top = 0.4.cssRem).maxWidth(28.cssRem))
                         Div(Modifier.margin(top = 0.8.cssRem).display(DisplayStyle.Flex).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                            LinkButton("Download", AmieConfig.downloadUrl(app.name, app.kind, app.size), download = true)
-                            CopyButton(absolute(AmieConfig.downloadUrl(app.name, app.kind, app.size)), label = "Copy link", toast = "Download link copied.")
+                            LinkButton("Download", AmieConfig.downloadUrl(app.name, app.kind, app.size), download = true, plain = true)
+                            CopyButton(absolute(AmieConfig.downloadUrl(app.name, app.kind, app.size)), label = "Copy link", toast = "Download link copied.", plain = true)
                         }
                         app.md5?.let { md5 ->
                             Div(Modifier.margin(top = 0.7.cssRem).fontSize(8.px).display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
                                 MutedText("MD5", Modifier.fontSize(8.px))
                                 Code(attrs = Modifier.fontSize(8.px).styleModifier { property("word-break", "break-all") }.toAttrs()) { Text(md5) }
-                                CopyButton(md5, label = "Copy", done = "Copied", toast = "Checksum copied. Compare it with md5sum or shasum after the download.")
+                                CopyButton(md5, label = "Copy", done = "Copied", toast = "Checksum copied. Compare it with md5sum or shasum after the download.", plain = true)
                             }
                         }
                     }
@@ -190,8 +190,8 @@ fun DownloadsPage() {
                                 Td { SpanText(formatRelative(jar.lastModified), Modifier.whiteSpace(WhiteSpace.NoWrap).attrsModifier { attr("title", formatDate(jar.lastModified)) }) }
                                 Td {
                                     Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                                        LinkButton("Download", url, download = true)
-                                        CopyButton(absolute(url), label = "Copy link", toast = "Download link for ${jar.name} copied.")
+                                        LinkButton("Download", url, download = true, plain = true)
+                                        CopyButton(absolute(url), label = "Copy link", toast = "Download link for ${jar.name} copied.", plain = true)
                                     }
                                 }
                             }

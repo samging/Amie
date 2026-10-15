@@ -28,7 +28,7 @@ data class AdminUserDto(val profile: ProfileDto, val notes: Long, val hasPasswor
 data class AdminInboxDto(val pendingAvatars: Int, val notesLastDay: Long, val total: Long, val pending: List<PendingAvatarDto>, val notes: List<NoteDto>)
 
 /** A picture waiting for approval: who, what type, how big; the bytes come from `GET /avatar?preview=1`. */
-data class PendingAvatarDto(val username: String, val nickname: String, val contentType: String, val bytes: Int)
+data class PendingAvatarDto(val username: String, val nickname: String, val contentType: String, val bytes: Int, val kind: String = "avatar")
 
 /**
  * Moderation for Keycloak accounts with the admin role ([AdminAccess]): see every account and the latest
@@ -89,27 +89,40 @@ class AdminController(
     @GetMapping("/inbox")
     fun inbox(@RequestHeader("Authorization") authHeader: String): AdminInboxDto {
         access.require(authHeader)
-        val pending = userService.pendingAvatars().map { PendingAvatarDto(it.username, it.nickname.orEmpty(), it.avatarType ?: "", it.avatar?.size ?: 0) }
+        val pending = pendingImages()
         val since = java.time.Instant.now().minus(java.time.Duration.ofDays(1))
         val notesLastDay = notes.countByCreatedAtAfter(since)
         val latest = notes.findAll(PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))).content.filter { it.createdAt.isAfter(since) }.map { NoteDto.of(it) }
         return AdminInboxDto(pending.size, notesLastDay, pending.size + notesLastDay, pending, latest)
     }
 
-    /** Pictures nobody has approved yet. */
+    private fun pendingImages(): List<PendingAvatarDto> =
+        userService.pendingAvatars().map { PendingAvatarDto(it.username, it.nickname.orEmpty(), it.avatarType ?: "", it.avatar?.size ?: 0, "avatar") } +
+            userService.pendingBackgrounds().map { PendingAvatarDto(it.username, it.nickname.orEmpty(), it.backgroundType ?: "", it.background?.size ?: 0, "background") }
+
+    /** Pictures and backgrounds nobody has approved yet (`kind` says which). */
     @GetMapping("/avatars/pending")
     fun pendingAvatars(@RequestHeader("Authorization") authHeader: String): List<PendingAvatarDto> {
         access.require(authHeader)
-        return userService.pendingAvatars().map { PendingAvatarDto(it.username, it.nickname.orEmpty(), it.avatarType ?: "", it.avatar?.size ?: 0) }
+        return pendingImages()
     }
 
-    /** Approves a waiting picture, after which everyone sees it. */
+    /** Approves a waiting picture (or, with `kind=background`, a background), after which everyone sees it. */
     @PostMapping("/users/{username}/avatar/approve")
-    fun approveAvatar(@PathVariable username: String, @RequestHeader("Authorization") authHeader: String): ResponseEntity<Void> {
+    fun approveAvatar(@PathVariable username: String, @RequestParam(defaultValue = "avatar") kind: String, @RequestHeader("Authorization") authHeader: String): ResponseEntity<Void> {
         val admin = access.require(authHeader)
-        val approved = userService.approveAvatar(username)
-        log.info("Admin {} approved the picture of {}: {}", admin.username, username, approved)
+        val approved = if (kind == "background") userService.approveBackground(username) else userService.approveAvatar(username)
+        log.info("Admin {} approved the {} of {}: {}", admin.username, kind, username, approved)
         return if (approved) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
+    }
+
+    /** Removes a waiting or approved background. */
+    @DeleteMapping("/users/{username}/background")
+    fun clearBackground(@PathVariable username: String, @RequestHeader("Authorization") authHeader: String): ResponseEntity<Void> {
+        val admin = access.require(authHeader)
+        val removed = userService.getProfile(username) != null && userService.clearBackground(username)
+        log.info("Admin {} removed the background of {}: {}", admin.username, username, removed)
+        return if (removed) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
     }
 
     /** The badges that exist. */

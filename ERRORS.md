@@ -102,6 +102,10 @@ http://localhost:8088 is unreachable: …` or `The package store could not <what
 | `DELETE /avatar?username=` | 401, 403; 404 when there was none |
 | any route, too often | 429 `Too many requests; try again in N seconds` with `Retry-After` and `retryAfterSeconds` (`RateLimitFilter`: 10 sign-ins, 20 uploads, 60 writes, 300 reads a minute per address) |
 | `GET /avatar?username=&preview=true` | 404 `No picture` unless the bearer is the owner's or an administrator's and a picture waits for approval |
+| `GET /background?username=`, `POST`, `DELETE` | as `/avatar`: 404 `No background`; 400 for a bad image (`A picture may be at most 2048 KB` / `… 4096 × 4096 pixels`); 413 over 2 MB |
+| `GET /stats` | 400 `Give username= or path=` / `Invalid author`; never 404 (an author nobody touched has an empty list) |
+| `POST /stats/download?path=` | 400 `Invalid path` |
+| `POST /likes?path=`, `GET /likes` | 401; 400 `Invalid path` / `That is a lot of likes; remove some first`; 404 `No such user` |
 | `GET /publications?username=` | never fails: an empty list for an unknown person |
 | `POST /publications` | 401; 400 `A publication needs a title` / `The year must be between 1900 and 2100` / `A link must start with http:// or https://` / `That is not a valid link` / `That is not a DOI (10.xxxx/...)` / `At most 50 publications per person`; 404 `No such user` |
 | `DELETE /publications/{id}` | 401; 403 `Only the owner can remove this publication`; 404 |

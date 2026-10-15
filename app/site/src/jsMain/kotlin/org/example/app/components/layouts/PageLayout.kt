@@ -88,7 +88,6 @@ fun PageLayout(title: String, content: @Composable ColumnScope.() -> Unit) {
     Shortcuts.Install()
     ConnectionNotices()
 
-    AnimatedBackground()
     Box(
         Modifier
             .fillMaxWidth()

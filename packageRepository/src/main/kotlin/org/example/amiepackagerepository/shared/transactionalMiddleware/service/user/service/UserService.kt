@@ -6,6 +6,7 @@ import org.example.amiepackagerepository.shared.errors.ConflictException
 import org.example.amiepackagerepository.shared.notes.PackageNoteRepository
 import org.example.amiepackagerepository.shared.badges.UserBadgeRepository
 import org.example.amiepackagerepository.shared.publications.PublicationRepository
+import org.example.amiepackagerepository.shared.stats.PackageLikeRepository
 import org.example.amiepackagerepository.shared.profile.Avatar
 import org.example.amiepackagerepository.shared.profile.AvatarValidator
 import org.example.amiepackagerepository.shared.profile.ProfileRules
@@ -39,6 +40,7 @@ class UserService(
     private val packageNoteRepository: PackageNoteRepository,
     private val userBadgeRepository: UserBadgeRepository,
     private val publicationRepository: PublicationRepository,
+    private val packageLikeRepository: PackageLikeRepository,
 ) {
     private val passwordEncoder = BCryptPasswordEncoder()
     private val log = LoggerFactory.getLogger(UserService::class.java)
@@ -86,6 +88,7 @@ class UserService(
                 packageNoteRepository.deleteAll(packageNoteRepository.findByAuthor(user))
                 userBadgeRepository.deleteAll(userBadgeRepository.findByUser(user))
                 publicationRepository.deleteAll(publicationRepository.findByUserOrderByYearDescCreatedAtDesc(user))
+                packageLikeRepository.deleteAll(packageLikeRepository.findByUser(user))
                 restUserRepository.delete(user)
             } else {
                 log.debug("Password did not match for user: {}", username)
@@ -251,6 +254,7 @@ class UserService(
         packageNoteRepository.deleteAll(packageNoteRepository.findByAuthor(user))
         userBadgeRepository.deleteAll(userBadgeRepository.findByUser(user))
         publicationRepository.deleteAll(publicationRepository.findByUserOrderByYearDescCreatedAtDesc(user))
+        packageLikeRepository.deleteAll(packageLikeRepository.findByUser(user))
         restUserRepository.delete(user)
         return true
     }
@@ -281,6 +285,41 @@ class UserService(
         logActivity(username, "AVATAR_APPROVED", "An administrator approved the profile picture")
         return true
     }
+
+    /** Stores a profile background (up to 2 MB, 4096 px), waiting for approval like the picture. */
+    fun setBackground(username: String, bytes: ByteArray): Avatar {
+        val user = restUserRepository.findByUsername(username) ?: throw IllegalArgumentException("User not found")
+        val image = AvatarValidator.validate(bytes, AvatarValidator.BACKGROUND_MAX_BYTES, AvatarValidator.BACKGROUND_MAX_SIDE)
+        restUserRepository.save(user.copy(background = image.bytes, backgroundType = image.contentType, backgroundApproved = false))
+        logActivity(username, "UPDATE_BACKGROUND", "Uploaded a profile background (${image.contentType}, ${image.bytes.size} bytes), awaiting approval")
+        return image
+    }
+
+    fun getBackground(username: String, includePending: Boolean = false): Avatar? {
+        val user = restUserRepository.findByUsername(username) ?: return null
+        val bytes = user.background ?: return null
+        if (user.backgroundApproved != true && !includePending) return null
+        return Avatar(bytes, user.backgroundType ?: AvatarValidator.detect(bytes) ?: "application/octet-stream")
+    }
+
+    fun clearBackground(username: String): Boolean {
+        val user = restUserRepository.findByUsername(username) ?: throw IllegalArgumentException("User not found")
+        if (user.background == null) return false
+        restUserRepository.save(user.copy(background = null, backgroundType = null, backgroundApproved = null))
+        logActivity(username, "UPDATE_BACKGROUND", "Removed the profile background")
+        return true
+    }
+
+    fun approveBackground(username: String): Boolean {
+        val user = restUserRepository.findByUsername(username) ?: return false
+        if (user.background == null || user.backgroundApproved == true) return false
+        restUserRepository.save(user.copy(backgroundApproved = true))
+        logActivity(username, "BACKGROUND_APPROVED", "An administrator approved the profile background")
+        return true
+    }
+
+    /** The accounts whose background waits for approval. */
+    fun pendingBackgrounds(): List<RestUserEntity> = restUserRepository.findAll().filter { it.backgroundPending }.sortedBy { it.username.lowercase() }
 
     /** The accounts whose picture waits for approval. */
     fun pendingAvatars(): List<RestUserEntity> = restUserRepository.findAll().filter { it.avatarPending }.sortedBy { it.username.lowercase() }

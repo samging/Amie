@@ -126,13 +126,13 @@ suspend fun adminUserAction(ctx: ApiContext) {
     val username = ctx.req.params["username"]?.trim().orEmpty()
     if (!validUsername(username)) { ctx.sendJson(400, """{"error":"missing_username"}"""); return }
     val encoded = URLEncoder.encode(username, Charsets.UTF_8)
-    if (ctx.req.params["action"] == "approve-avatar") {
-        ServerCache.invalidate("avatar:$username"); ServerCache.invalidate("profile:$username")
-        ctx.forwardAdmin("POST", "/admin/users/$encoded/avatar/approve", token)
-        return
+    when (ctx.req.params["action"]) {
+        "approve-avatar" -> { ServerCache.invalidate("avatar:$username"); ServerCache.invalidate("profile:$username"); ctx.forwardAdmin("POST", "/admin/users/$encoded/avatar/approve", token); return }
+        "approve-background" -> { ServerCache.invalidate("background:$username"); ServerCache.invalidate("profile:$username"); ctx.forwardAdmin("POST", "/admin/users/$encoded/avatar/approve?kind=background", token); return }
     }
     val path = when (ctx.req.params["action"]) {
         "clear-nickname" -> "/admin/users/$encoded/nickname"
+        "clear-background" -> { ServerCache.invalidate("background:$username"); "/admin/users/$encoded/background" }
         "clear-avatar" -> { ServerCache.invalidate("avatar:$username"); "/admin/users/$encoded/avatar" }
         "delete" -> { ServerCache.invalidate("avatar:$username"); ServerCache.invalidate("notes:"); "/admin/users/$encoded" }
         else -> { ctx.sendJson(400, """{"error":"invalid_request"}"""); return }

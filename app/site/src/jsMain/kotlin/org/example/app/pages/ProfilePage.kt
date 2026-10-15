@@ -19,6 +19,11 @@ import org.example.app.auth.SessionSource
 import org.example.app.components.Catalog
 import org.example.app.components.BadgeRow
 import org.example.app.components.AdminInboxPanel
+import org.example.app.components.loadAdminInbox
+import org.example.app.components.loadMyLikes
+import org.example.app.components.ProfileBanner
+import org.example.app.components.PendingBackgroundPreview
+import org.example.app.pages.KindIcon
 import org.example.app.components.PublicationsEditor
 import org.example.app.components.ClientCache
 import org.example.app.components.Http
@@ -62,6 +67,14 @@ fun ProfilePage() {
     var saved by remember { mutableStateOf(listOf("", "", "", "", "", "")) }
     var avatarPending by remember { mutableStateOf(false) }
     var badges by remember { mutableStateOf(listOf<String>()) }
+    var inboxCount by remember { mutableStateOf(0) }
+    var hasBackground by remember { mutableStateOf(false) }
+    var backgroundPending by remember { mutableStateOf(false) }
+    var backgroundVersion by remember { mutableStateOf("") }
+    var backgroundBusy by remember { mutableStateOf(false) }
+    var backgroundInput by remember { mutableStateOf<org.w3c.dom.HTMLInputElement?>(null) }
+    var liked by remember { mutableStateOf<List<String>?>(null) }
+    val tab = rememberTab("profile", listOf("profile", "saved", "publications", "inbox", "account"))
     var hasAvatar by remember { mutableStateOf(false) }
     var avatarVersion by remember { mutableStateOf("") }
     var avatarBusy by remember { mutableStateOf(false) }
@@ -87,6 +100,9 @@ fun ProfilePage() {
         github = obj["github"]?.jsonPrimitive?.contentOrNull ?: ""
         huggingFace = obj["huggingFace"]?.jsonPrimitive?.contentOrNull ?: ""
         badges = runCatching { (obj["badges"] as? kotlinx.serialization.json.JsonArray)?.map { it.jsonPrimitive.content } }.getOrNull() ?: emptyList()
+        hasBackground = obj["hasBackground"]?.jsonPrimitive?.contentOrNull == "true"
+        backgroundPending = obj["backgroundPending"]?.jsonPrimitive?.contentOrNull == "true"
+        backgroundVersion = obj["backgroundVersion"]?.jsonPrimitive?.contentOrNull ?: ""
         saved = listOf(fullName, email, bio, nickname, github, huggingFace)
     }
 
@@ -128,6 +144,32 @@ fun ProfilePage() {
         }
     }
 
+    fun uploadBackground(file: org.w3c.files.File) {
+        val user = username ?: return
+        if (file.type !in AVATAR_TYPES) { avatarNotice = "Choose a PNG, JPEG, GIF or WebP picture for the background."; avatarNoticeKind = BannerKind.ERROR; return }
+        if (file.size.toDouble() > 2 * 1024 * 1024) { avatarNotice = "The background must be at most 2 MB."; avatarNoticeKind = BannerKind.ERROR; return }
+        scope.launch {
+            backgroundBusy = true; avatarNotice = null
+            try {
+                val form = org.w3c.xhr.FormData(); form.append("file", file, file.name)
+                val result = Http.upload(AmieConfig.api("background?username=${encodeURIComponent(user)}"), form, Http.bearer(AuthClient.accessToken())) {}
+                if (result.ok) { reloadProfile(user); Toasts.show("Background uploaded; an administrator will approve it.", BannerKind.SUCCESS) }
+                else { avatarNotice = when (result.status) { 400 -> "That file was not accepted: a PNG, JPEG, GIF or WebP up to 4096 pixels."; 413 -> "The background must be at most 2 MB."; 401 -> "Your session has ended. Sign in again."; else -> "The background could not be saved right now." }; avatarNoticeKind = BannerKind.ERROR }
+            } catch (e: Throwable) { avatarNotice = "The background could not be saved right now."; avatarNoticeKind = BannerKind.ERROR } finally { backgroundBusy = false }
+        }
+    }
+
+    fun removeBackground() {
+        val user = username ?: return
+        scope.launch {
+            backgroundBusy = true
+            val result = runCatching { Http.postForm(AmieConfig.api("background-delete?username=${encodeURIComponent(user)}"), emptyMap(), Http.bearer(AuthClient.accessToken())) }.getOrNull()
+            if (result?.ok == true || result?.status == 404) { reloadProfile(user); Toasts.show("Background removed.", BannerKind.SUCCESS) }
+            else { avatarNotice = "The background could not be removed right now."; avatarNoticeKind = BannerKind.ERROR }
+            backgroundBusy = false
+        }
+    }
+
     fun removeAvatar() {
         val user = username ?: return
         scope.launch {
@@ -159,6 +201,7 @@ fun ProfilePage() {
         } finally {
             loading = false
         }
+        inboxCount = loadAdminInbox()?.total?.toInt() ?: 0
         val mine = runCatching { Catalog.load() }.getOrDefault(Catalog.stale()).filter { it.author == user }
         packageCount = mine.size
         packageSize = mine.sumOf { it.size }
@@ -213,28 +256,52 @@ fun ProfilePage() {
         if (loading) {
             SkeletonRows(rows = 4, label = "Loading profile…")
         } else if (user != null) {
-            Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(1.cssRem).margin(bottom = 1.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                if (avatarPending) {
-                    // The owner's own preview of a picture nobody else sees yet; served with the bearer, never cached
-                    PendingAvatarPreview(user, size = 3.5.cssRem)
-                } else {
-                    Avatar(PublicProfile(username = user, fullName = fullName, nickname = nickname, hasAvatar = hasAvatar, avatarVersion = avatarVersion), size = 3.5.cssRem, modifier = Modifier.boxShadow(4.px, 4.px, 0.px, 0.px, Colors.White))
-                }
-                Div {
-                    Div(Modifier.fontSize(13.px).toAttrs()) { Text(saved[3].ifBlank { fullName.ifBlank { user } }) }
-                    MutedText(if (fullName.isBlank() && saved[3].isBlank()) "Add a nickname or your name below so people know who publishes your packages." else "@$user")
-                    BadgeRow(badges, Modifier.margin(top = 0.3.cssRem))
+            TabBar(
+                buildList {
+                    add(Tab("profile", "Profile"))
+                    add(Tab("saved", "Saved", liked?.size))
+                    add(Tab("publications", "Publications"))
+                    if (AuthSession.isAdmin) add(Tab("inbox", "Inbox", inboxCount, alert = true))
+                    add(Tab("account", "Account"))
+                },
+                tab.value
+            ) { tab.value = it }
+
+            if (tab.value == "profile") {
+            // The banner as visitors see it: the approved background, or the person's colour
+            ProfileBanner(PublicProfile(username = user, fullName = fullName, nickname = nickname, hasAvatar = hasAvatar, avatarVersion = avatarVersion, badges = badges, hasBackground = hasBackground, backgroundVersion = backgroundVersion)) {
+                Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(1.cssRem).toAttrs()) {
+                    if (avatarPending) PendingAvatarPreview(user, size = 3.5.cssRem) else Avatar(PublicProfile(username = user, fullName = fullName, nickname = nickname, hasAvatar = hasAvatar, avatarVersion = avatarVersion), size = 3.5.cssRem)
+                    Div {
+                        Div(Modifier.fontSize(14.px).toAttrs()) { Text(saved[3].ifBlank { fullName.ifBlank { user } }) }
+                        MutedText("@$user", Modifier.margin(top = 0.3.cssRem))
+                        BadgeRow(badges, Modifier.margin(top = 0.4.cssRem))
+                    }
                 }
                 Div(Modifier.display(DisplayStyle.Flex).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).alignItems(AlignItems.Center).toAttrs()) {
                     Input(InputType.File, attrs = Modifier.display(DisplayStyle.None).toAttrs {
                         attr("accept", AVATAR_TYPES.joinToString(","))
-                        attr("aria-label", "Choose a profile picture")
-                        ref { element -> fileInput = element; onDispose { fileInput = null } }
-                        onChange { event -> event.target.files?.item(0)?.let { uploadAvatar(it) }; event.target.value = "" }
+                        attr("aria-label", "Choose a background")
+                        ref { element -> backgroundInput = element; onDispose { backgroundInput = null } }
+                        onChange { event -> event.target.files?.item(0)?.let { uploadBackground(it) }; event.target.value = "" }
                     })
-                    GhostButton(if (avatarBusy) "Working…" else if (hasAvatar) "Change picture" else "Add a picture", enabled = !avatarBusy) { fileInput?.click() }
-                    if ((hasAvatar || avatarPending) && !avatarBusy) GhostButton("Remove picture") { removeAvatar() }
+                    GhostButton(if (backgroundBusy) "Working…" else if (hasBackground || backgroundPending) "Change background" else "Add a background", enabled = !backgroundBusy, plain = true) { backgroundInput?.click() }
+                    if ((hasBackground || backgroundPending) && !backgroundBusy) GhostButton("Remove background", plain = true) { removeBackground() }
                 }
+            }
+            if (backgroundPending) {
+                StatusBanner("Your background is waiting for an administrator's approval. Only you can see it until then.", BannerKind.INFO, Modifier.margin(bottom = 0.6.cssRem))
+                PendingBackgroundPreview(user, Modifier.margin(bottom = 1.2.cssRem))
+            }
+            Div(Modifier.display(DisplayStyle.Flex).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).alignItems(AlignItems.Center).margin(bottom = 0.6.cssRem).toAttrs()) {
+                Input(InputType.File, attrs = Modifier.display(DisplayStyle.None).toAttrs {
+                    attr("accept", AVATAR_TYPES.joinToString(","))
+                    attr("aria-label", "Choose a profile picture")
+                    ref { element -> fileInput = element; onDispose { fileInput = null } }
+                    onChange { event -> event.target.files?.item(0)?.let { uploadAvatar(it) }; event.target.value = "" }
+                })
+                GhostButton(if (avatarBusy) "Working…" else if (hasAvatar) "Change picture" else "Add a picture", enabled = !avatarBusy) { fileInput?.click() }
+                if ((hasAvatar || avatarPending) && !avatarBusy) GhostButton("Remove picture") { removeAvatar() }
             }
             if (avatarPending) StatusBanner("Your picture is waiting for an administrator's approval. Only you can see it until then.", BannerKind.INFO, Modifier.margin(bottom = 0.8.cssRem))
             StatusBanner(avatarNotice, avatarNoticeKind, Modifier.margin(bottom = 1.cssRem))
@@ -281,17 +348,45 @@ fun ProfilePage() {
                 }
             }
 
-            AdminInboxPanel(Modifier.maxWidth(40.cssRem).margin(top = 1.5.cssRem))
+            }
+            if (tab.value == "saved") {
+                LaunchedEffect(Unit) { liked = loadMyLikes().toList() }
+                Card(Modifier.maxWidth(40.cssRem)) {
+                    Div(Modifier.fontSize(12.px).margin(bottom = 0.4.cssRem).toAttrs()) { Text("Saved packages") }
+                    MutedText("Packages you liked, from any author. Like again on the package's page to remove one.")
+                    val list = liked
+                    when {
+                        list == null -> SkeletonRows(rows = 2, label = "Loading…")
+                        list.isEmpty() -> MutedText("Nothing saved yet. Use Like on an author's package list.", Modifier.margin(top = 0.6.cssRem))
+                        else -> Div(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).gap(0.4.cssRem).margin(top = 0.8.cssRem).toAttrs()) {
+                            for (path in list) {
+                                val author = path.removePrefix("uploads/").substringBefore('/')
+                                Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.6.cssRem).fontSize(10.px).toAttrs()) {
+                                    KindIcon(org.example.app.components.PackageKind.of(path))
+                                    A("/view?package=${encodeURIComponent(path)}") { Text(path.substringAfterLast('/')) }
+                                    MutedText("by", Modifier.fontSize(8.px)); A("/dashboard?username=${encodeURIComponent(author)}", attrs = Modifier.fontSize(9.px).toAttrs()) { Text(author) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (tab.value == "inbox") {
+                AdminInboxPanel(Modifier.maxWidth(40.cssRem))
+            }
+            if (tab.value == "publications") {
+                PublicationsEditor(user)
+            }
+            if (tab.value == "account") {
 
-            PublicationsEditor(user)
-
-            Card(Modifier.maxWidth(32.cssRem).margin(top = 1.5.cssRem)) {
+            Card(Modifier.maxWidth(32.cssRem)) {
                 Div(Modifier.fontSize(12.px).margin(bottom = 0.4.cssRem).toAttrs()) { Text("Account") }
                 MutedText(if (session?.source == SessionSource.KEYCLOAK) "Password and email changes happen on the sign-in service; signing out here also signs you out there." else "This account exists only on this site.")
                 Div(Modifier.margin(top = 0.8.cssRem).display(DisplayStyle.Flex).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
                     if (session?.source == SessionSource.KEYCLOAK) LinkButton("Change password", AmieConfig.authUrl(scope = "openid", extra = "&kc_action=UPDATE_PASSWORD"), primary = false)
                     DangerButton("Sign out") { AuthClient.signOut() }
                 }
+            }
             }
         }
     }

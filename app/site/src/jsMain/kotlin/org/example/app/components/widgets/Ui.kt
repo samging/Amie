@@ -156,6 +156,37 @@ val DangerButtonVariant = ButtonStyle.addVariant {
     active { PixelButtonPressed.boxShadow(0.px, 0.px, 0.px, 0.px, Colors.White) }
 }
 
+/**
+ * The quiet button for rows of files and models: a thin border, no shadow, no jump on hover, normal case.
+ * The chunky pixel buttons stay for page actions and for authors.
+ */
+private fun Modifier.plainButton(foreground: Color, border: Color): Modifier = this
+    .setVariable(ButtonVars.BackgroundDefaultColor, Colors.Transparent)
+    .setVariable(ButtonVars.BackgroundHoverColor, Color.rgba(255, 255, 255, 0.08f))
+    .setVariable(ButtonVars.BackgroundPressedColor, Color.rgba(255, 255, 255, 0.14f))
+    .setVariable(ButtonVars.Color, foreground)
+    .setVariable(ButtonVars.FontSize, 9.px)
+    .setVariable(ButtonVars.Height, 1.9.cssRem)
+    .setVariable(ButtonVars.PaddingHorizontal, 0.7.cssRem)
+    .fontFamily("Press Start 2P", "monospace")
+    .lineHeight(1)
+    .whiteSpace(com.varabyte.kobweb.compose.css.WhiteSpace.NoWrap)
+    .letterSpacing(0.px)
+    .borderRadius(0.px)
+    .border(1.px, LineStyle.Solid, border)
+    .boxShadow(0.px, 0.px, 0.px, 0.px, Colors.Transparent)
+    .transition(com.varabyte.kobweb.compose.css.Transition.of("background-color", 100.ms))
+
+val PlainButtonVariant = ButtonStyle.addVariant {
+    base { Modifier.plainButton(Colors.White, Color.rgb(0x5A5A5A)) }
+    hover { Modifier.border(1.px, LineStyle.Solid, Color.rgb(0x9A9A9A)) }
+}
+
+val PlainDangerButtonVariant = ButtonStyle.addVariant {
+    base { Modifier.plainButton(Color.rgb(0xE08A8A), Color.rgb(0x6A4040)) }
+    hover { Modifier.border(1.px, LineStyle.Solid, Color.rgb(0xC06060)) }
+}
+
 // ---- widgets ------------------------------------------------------------------------------------------
 
 @Composable
@@ -182,27 +213,34 @@ fun PageHeading(title: String, subtitle: String? = null, actions: (@Composable (
 }
 
 @Composable
-fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(onClick = { onClick() }, modifier, variant = PrimaryButtonVariant, enabled = enabled) { Text(text) }
+fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, plain: Boolean = false, onClick: () -> Unit) {
+    Button(onClick = { onClick() }, modifier, variant = if (plain) PlainButtonVariant else PrimaryButtonVariant, enabled = enabled) { Text(text) }
 }
 
 @Composable
-fun GhostButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(onClick = { onClick() }, modifier, variant = GhostButtonVariant, enabled = enabled) { Text(text) }
+fun GhostButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, plain: Boolean = false, onClick: () -> Unit) {
+    Button(onClick = { onClick() }, modifier, variant = if (plain) PlainButtonVariant else GhostButtonVariant, enabled = enabled) { Text(text) }
 }
 
 @Composable
-fun DangerButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    Button(onClick = { onClick() }, modifier, variant = DangerButtonVariant, enabled = enabled) { Text(text) }
+fun DangerButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, plain: Boolean = false, onClick: () -> Unit) {
+    Button(onClick = { onClick() }, modifier, variant = if (plain) PlainDangerButtonVariant else DangerButtonVariant, enabled = enabled) { Text(text) }
 }
 
-/** A link that looks like the primary button; `download` makes the browser save the target. */
+/** The quiet button for a row of files or models. */
 @Composable
-fun LinkButton(text: String, href: String, download: Boolean = false, primary: Boolean = true, modifier: Modifier = Modifier) {
+fun PlainButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    Button(onClick = { onClick() }, modifier, variant = PlainButtonVariant, enabled = enabled) { Text(text) }
+}
+
+/** A link that looks like a button; `download` makes the browser save the target; `plain` is the quiet row style. */
+@Composable
+fun LinkButton(text: String, href: String, download: Boolean = false, primary: Boolean = true, modifier: Modifier = Modifier, plain: Boolean = false, onClick: (() -> Unit)? = null) {
     A(href, attrs = Modifier.textDecorationLine(com.varabyte.kobweb.compose.css.TextDecorationLine.None).toAttrs {
         if (download) attr("download", "")
+        if (onClick != null) onClick { onClick() }
     }) {
-        Button(onClick = {}, modifier, variant = if (primary) PrimaryButtonVariant else GhostButtonVariant) { Text(text) }
+        Button(onClick = {}, modifier, variant = if (plain) PlainButtonVariant else if (primary) PrimaryButtonVariant else GhostButtonVariant) { Text(text) }
     }
 }
 

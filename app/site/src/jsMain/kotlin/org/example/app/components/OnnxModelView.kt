@@ -67,12 +67,6 @@ private fun shapeOf(dims: List<Long>) = if (dims.isEmpty()) "scalar" else dims.j
 
 // ---- colour: one muted hue per family of operators, readable on the light and the dark theme ---------
 
-/** A soft colour: [r], [g], [b] mid-lightness so it reads on black and on white, used as a tint and an edge */
-class Tone(val r: Int, val g: Int, val b: Int, val name: String) {
-    fun edge(): Color = Color.rgb(r, g, b)
-    fun tint(alpha: Float): Color = Color.rgba(r, g, b, alpha)
-}
-
 object Tones {
     val linear = Tone(124, 138, 214, "linear")           // MatMul, Gemm, attention: a quiet indigo
     val activation = Tone(201, 160, 92, "activation")    // Softmax, Gelu, Relu: sand
@@ -107,35 +101,6 @@ object Tones {
         "feed_forward" -> feedForward
         "normalization" -> normalization
         else -> other
-    }
-}
-
-/** A small square in a tone, in front of a node or a chip */
-@Composable
-fun ToneDot(tone: Tone, size: CSSLengthValue = 9.px) {
-    Span(Modifier.display(DisplayStyle.InlineBlock).width(size).height(size).flexShrink(0)
-        .backgroundColor(tone.tint(0.55f)).border(1.px, LineStyle.Solid, tone.edge()).toAttrs { attr("aria-hidden", "true") }) {}
-}
-
-/** A filter chip tinted with its tone: outlined when off, filled with the tint when on; never black on white */
-@Composable
-fun ToneChip(text: String, selected: Boolean, tone: Tone, count: Int? = null, onClick: () -> Unit) {
-    val palette = ColorMode.current.toSitePalette()
-    Div(
-        Modifier
-            .fontSize(9.px).lineHeight(1).padding(0.45.cssRem, 0.65.cssRem)
-            .border(2.px, LineStyle.Solid, if (selected) tone.edge() else tone.tint(0.45f))
-            .backgroundColor(tone.tint(if (selected) 0.32f else 0.10f))
-            .cursor(Cursor.Pointer).userSelect(UserSelect.None).whiteSpace(WhiteSpace.NoWrap)
-            .display(DisplayStyle.LegacyInlineFlex).alignItems(AlignItems.Center).gap(0.4.cssRem)
-            .tabIndex(0)
-            .onClick { onClick() }
-            .onKeyDown { if (it.key == "Enter" || it.key == " ") { it.preventDefault(); onClick() } }
-            .toAttrs { attr("role", "button"); attr("aria-pressed", selected.toString()) }
-    ) {
-        ToneDot(tone, 7.px)
-        Text(text)
-        if (count != null) Span(Modifier.color(palette.muted).toAttrs()) { Text(count.toString()) }
     }
 }
 

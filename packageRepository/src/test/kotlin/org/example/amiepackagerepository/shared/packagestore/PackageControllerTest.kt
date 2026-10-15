@@ -47,12 +47,13 @@ class PackageControllerTest {
     @Mock private lateinit var deviceService: TransactionalStatusRepository
     @Mock private lateinit var claims: Claims
     @Mock private lateinit var notes: org.example.amiepackagerepository.shared.notes.NoteService
+    @Mock private lateinit var statsService: org.example.amiepackagerepository.shared.stats.StatsService
 
     private lateinit var mockMvc: MockMvc
 
     @BeforeEach
     fun setUp() {
-        val controller = PackageController(store, userService, deviceService, JarInspector(), notes)
+        val controller = PackageController(store, userService, deviceService, JarInspector(), notes, statsService)
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
             .addPlaceholderValue("amie.cors.allowed-origins", "http://localhost:8081")
             .build()

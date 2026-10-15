@@ -42,7 +42,7 @@ fun BadgeRow(badges: List<String>, modifier: Modifier = Modifier) {
     Div(Modifier.display(DisplayStyle.Flex).gap(0.35.cssRem).flexWrap(FlexWrap.Wrap).then(modifier).toAttrs { attr("aria-label", "Badges") }) {
         for (key in badges) {
             val (label, meaning) = BADGE_LABELS[key] ?: (key to "")
-            Span(Modifier.toAttrs { if (meaning.isNotEmpty()) attr("title", meaning) }) { Badge(label, BadgeTone.FILLED) }
+            Span(Modifier.toAttrs { if (meaning.isNotEmpty()) attr("title", meaning) }) { Badge(label, color = SiteTones.ofBadge(key)) }
         }
     }
 }
@@ -201,7 +201,7 @@ fun PublicationsEditor(username: String) {
         }
     }
 
-    Card(Modifier.maxWidth(32.cssRem).margin(top = 1.5.cssRem)) {
+    Card(Modifier.maxWidth(32.cssRem)) {
         Div(Modifier.fontSize(12.px).margin(bottom = 0.4.cssRem).toAttrs()) { Text("Publications") }
         MutedText("Papers, theses and articles shown on your public page. Links must start with http(s)://.")
         val list = publications

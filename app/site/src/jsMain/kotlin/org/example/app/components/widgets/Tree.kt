@@ -30,6 +30,8 @@ class TreeNode(
     val href: String? = null,
     val children: List<TreeNode> = emptyList(),
     val actions: (@Composable () -> Unit)? = null,
+    /** Colours the badge (a file kind, an author) */
+    val tone: Tone? = null,
 ) {
     val isFolder: Boolean get() = children.isNotEmpty()
 
@@ -81,7 +83,7 @@ private fun TreeItem(node: TreeNode, expanded: Set<String>, onToggle: (String) -
                 Span(Modifier.then(if (node.isFolder) Modifier.fontWeight(com.varabyte.kobweb.compose.css.FontWeight.SemiBold) else Modifier).styleModifier { property("word-break", "break-all") }.toAttrs()) { Text(node.label) }
             }
             node.detail?.let { MutedText(it, Modifier.fontSize(9.px).minWidth(0.px)) }
-            node.badge?.let { Badge(it) }
+            node.badge?.let { Badge(it, color = node.tone) }
             node.actions?.let { actions ->
                 Div(Modifier.margin(left = 0.5.cssRem).styleModifier { property("margin-left", "auto") }.display(DisplayStyle.Flex).gap(0.4.cssRem).flexWrap(FlexWrap.Wrap).justifyContent(JustifyContent.FlexEnd).toAttrs { onClick { it.stopPropagation() } }) { actions() }
             }

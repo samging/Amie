@@ -24,12 +24,15 @@ object AvatarValidator {
     const val MAX_SIDE = 2048
     val ALLOWED_TYPES = setOf("image/png", "image/jpeg", "image/gif", "image/webp")
 
-    fun validate(bytes: ByteArray): Avatar {
+    const val BACKGROUND_MAX_BYTES = 2 * 1024 * 1024
+    const val BACKGROUND_MAX_SIDE = 4096
+
+    fun validate(bytes: ByteArray, maxBytes: Int = MAX_BYTES, maxSide: Int = MAX_SIDE): Avatar {
         require(bytes.isNotEmpty()) { "The picture is empty" }
-        require(bytes.size <= MAX_BYTES) { "A picture may be at most ${MAX_BYTES / 1024} KB" }
+        require(bytes.size <= maxBytes) { "A picture may be at most ${maxBytes / 1024} KB" }
         val type = detect(bytes) ?: throw IllegalArgumentException("Only PNG, JPEG, GIF and WebP pictures are accepted")
         measure(bytes)?.let { (w, h) ->
-            require(w in 1..MAX_SIDE && h in 1..MAX_SIDE) { "A picture may be at most $MAX_SIDE × $MAX_SIDE pixels" }
+            require(w in 1..maxSide && h in 1..maxSide) { "A picture may be at most $maxSide × $maxSide pixels" }
         }
         return Avatar(bytes, type)
     }

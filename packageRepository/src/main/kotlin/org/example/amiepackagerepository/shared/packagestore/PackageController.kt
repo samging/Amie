@@ -4,6 +4,7 @@ import kotlinx.coroutines.future.await
 import kotlinx.serialization.json.Json
 import org.example.amiepackagerepository.shared.packages.AmiePackage
 import org.example.amiepackagerepository.shared.notes.NoteService
+import org.example.amiepackagerepository.shared.stats.StatsService
 import org.example.amiepackagerepository.shared.packages.JarInspector
 import org.example.amiepackagerepository.shared.packagestore.dto.PackageFileDto
 import org.example.amiepackagerepository.shared.packagestore.dto.PackageItemDto
@@ -41,6 +42,7 @@ class PackageController(
     private val deviceService: TransactionalStatusRepository,
     private val jarInspector: JarInspector,
     private val notes: NoteService,
+    private val statsService: StatsService,
 ) {
     private val logger = LoggerFactory.getLogger(PackageController::class.java)
     private val json = Json { ignoreUnknownKeys = true }
@@ -110,6 +112,7 @@ class PackageController(
         if (removed) {
             userService.logActivity(subject, "REMOVE_PACKAGE", "Removed package: ${path.substringAfterLast('/')}")
             notes.deleteForPackage(path)
+            statsService.forgetPackage(path)
         }
         return if (removed) ResponseEntity.noContent().build() else ResponseEntity.notFound().build()
     }
@@ -181,6 +184,7 @@ class PackageController(
             if (removed) {
                 userService.logActivity(username, "REMOVE_PACKAGE", "Removed package: $fileName")
                 notes.deleteForPackage(key)
+                statsService.forgetPackage(key)
             }
             ResponseEntity.ok(if (removed) "removed" else "not there")
         } catch (e: PackageStoreException) {

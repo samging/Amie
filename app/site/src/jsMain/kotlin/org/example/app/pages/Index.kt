@@ -24,6 +24,7 @@ import org.example.app.HeadlineTextStyle
 import org.example.app.SubheadlineTextStyle
 import org.example.app.auth.AuthSession
 import org.example.app.components.Catalog
+import org.example.app.components.trackDownload
 import org.example.app.components.CatalogEntry
 import org.example.app.components.ClientCache
 import org.example.app.components.Http
@@ -65,8 +66,11 @@ private fun parseSearch(text: String): List<CatalogEntry> {
 @Composable
 fun KindIcon(kind: PackageKind) {
     val file = kind.iconFile
-    if (file != null) Img(file, kind.label, Modifier.size(1.4.cssRem).toAttrs())
-    else SpanText(kind.icon, Modifier.width(1.4.cssRem).textAlign(com.varabyte.kobweb.compose.css.TextAlign.Center).display(DisplayStyle.InlineBlock))
+    val tone = kind.tone
+    val box = Modifier.size(1.5.cssRem).display(DisplayStyle.LegacyInlineFlex).alignItems(AlignItems.Center).justifyContent(JustifyContent.Center).flexShrink(0)
+        .backgroundColor(tone.tint(0.22f)).border(1.px, LineStyle.Solid, tone.tint(0.7f))
+    if (file != null) Div(box.toAttrs { attr("title", kind.label) }) { Img(file, kind.label, Modifier.size(1.1.cssRem).toAttrs()) }
+    else Div(box.fontSize(10.px).color(tone.edge()).toAttrs { attr("title", kind.label); attr("aria-label", kind.label) }) { Text(kind.icon) }
 }
 
 private val sortOptions = listOf("name" to "Sort: name", "size" to "Sort: largest first", "author" to "Sort: author")
@@ -261,17 +265,19 @@ fun IndexPage() {
                 Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.6.cssRem).margin(bottom = 2.cssRem).toAttrs()) {
                     for ((name, files) in authors) {
                         val selected = author == name
+                        val tone = SiteTones.ofName(name)
                         Card(
-                            Modifier.width(Width.FitContent).minWidth(14.cssRem).display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.8.cssRem).padding(0.8.cssRem, 1.cssRem)
+                            Modifier.width(Width.FitContent).minWidth(14.cssRem).padding(0.px).styleModifier { property("overflow", "hidden") }
                                 .cursor(Cursor.Pointer)
                                 .then(if (selected) Modifier.boxShadow(6.px, 6.px, 0.px, 0.px, Colors.White).translate((-2).px, (-2).px) else Modifier)
                                 .onClick { author = if (selected) null else name }
                                 .attrsModifier { attr("role", "button"); attr("aria-pressed", selected.toString()); attr("tabindex", "0"); attr("title", if (selected) "Show every author" else "Show only $name's packages") }
                                 .onKeyDown { if (it.key == "Enter" || it.key == " ") { it.preventDefault(); author = if (selected) null else name } }
                         ) {
-                            Img("/usericon.svg", attrs = Modifier.size(2.2.cssRem).toAttrs())
-                            Div {
-                                Div(Modifier.fontWeight(FontWeight.SemiBold).toAttrs()) { Text(name) }
+                            ToneBand(tone, Modifier.padding(topBottom = 0.5.cssRem, leftRight = 0.8.cssRem)) {
+                                Div(Modifier.fontWeight(FontWeight.SemiBold).fontSize(11.px).toAttrs()) { Text(name) }
+                            }
+                            Div(Modifier.padding(0.6.cssRem, 0.8.cssRem).toAttrs()) {
                                 MutedText(plural(files.size, "package") + " · " + formatSize(files.sumOf { it.size }), Modifier.fontSize(8.px).display(DisplayStyle.Block))
                                 A("/dashboard?username=${encodeURIComponent(name)}", attrs = Modifier.fontSize(9.px).color(palette.brand.primary).toAttrs { onClick { it.stopPropagation() } }) { Text("Open profile") }
                             }
@@ -309,23 +315,39 @@ fun IndexPage() {
                 }
             } else if (treeView) {
                 // Authors as the top folders, the store's language folders under them, files inside
+                // One card per author: a header band in the author's colour, their folders and files below, space between authors
                 val byAuthor = shown.groupBy { it.author.ifEmpty { "unknown" } }.toList().sortedBy { it.first.lowercase() }
-                val nodes = byAuthor.map { (name, files) ->
+                val groups = byAuthor.map { (name, files) ->
                     val folders = files.groupBy { it.path.removePrefix("uploads/").substringAfter('/', "").substringBeforeLast('/', "").ifEmpty { "files" } }.toList().sortedBy { it.first.lowercase() }
-                    TreeNode("author:$name", name, plural(files.size, "package") + " · " + formatSize(files.sumOf { it.size }), href = null,
-                        actions = { LinkButton("Profile", "/dashboard?username=${encodeURIComponent(name)}", primary = false) },
-                        children = folders.map { (folder, items) ->
-                            TreeNode("author:$name:$folder", folder, plural(items.size, "file"), children = items.map { entry ->
-                                TreeNode("file:${entry.path}", entry.name, formatSize(entry.size), badge = entry.kind.label, icon = { KindIcon(entry.kind) }, href = entry.viewUrl, actions = {
-                                    if (entry.downloadUrl.isNotEmpty()) LinkButton("Download", entry.downloadUrl, download = true, primary = false)
-                                    CopyButton(window.location.origin + entry.viewUrl, label = "Copy link", toast = "Link to ${entry.name} copied.")
-                                })
+                    Triple(name, files, folders.map { (folder, items) ->
+                        TreeNode("author:$name:$folder", folder, plural(items.size, "file"), children = items.map { entry ->
+                            TreeNode("file:${entry.path}", entry.name, formatSize(entry.size), badge = entry.kind.label, icon = { KindIcon(entry.kind) }, href = entry.viewUrl, actions = {
+                                if (entry.downloadUrl.isNotEmpty()) LinkButton("Download", entry.downloadUrl, download = true, plain = true, onClick = { trackDownload(entry.path) })
+                                CopyButton(window.location.origin + entry.viewUrl, label = "Copy link", toast = "Link to ${entry.name} copied.", plain = true)
                             })
                         })
+                    })
                 }
-                val open = expanded ?: nodes.flatMap { listOf(it.id) + it.children.map { c -> c.id } }.toSet()
-                Card(Modifier.padding(0.4.cssRem, 0.6.cssRem)) {
-                    TreeView(nodes, open, onToggle = { id -> expanded = if (id in open) open - id else open + id })
+                val open = expanded ?: groups.flatMap { (_, _, folders) -> folders.map { it.id } }.toSet()
+                Div(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).gap(1.2.cssRem).toAttrs()) {
+                    for ((name, files, folders) in groups) {
+                        val tone = SiteTones.ofName(name)
+                        Card(Modifier.padding(0.px).styleModifier { property("overflow", "hidden") }) {
+                            ToneBand(tone) {
+                                Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.7.cssRem).minWidth(0.px).toAttrs()) {
+                                    InitialsMark(name.take(2).uppercase(), tone, 1.8.cssRem, Modifier.fontSize(9.px))
+                                    Div {
+                                        Div { A("/dashboard?username=${encodeURIComponent(name)}", attrs = Modifier.fontSize(12.px).fontWeight(FontWeight.SemiBold).color(Colors.White).toAttrs()) { Text(name) } }
+                                        MutedText(plural(files.size, "package") + " · " + formatSize(files.sumOf { it.size }), Modifier.fontSize(8.px).display(DisplayStyle.Block))
+                                    }
+                                }
+                                LinkButton("Profile", "/dashboard?username=${encodeURIComponent(name)}", primary = false)
+                            }
+                            Div(Modifier.padding(0.4.cssRem, 0.6.cssRem).toAttrs()) {
+                                TreeView(folders, open, onToggle = { id -> expanded = if (id in open) open - id else open + id })
+                            }
+                        }
+                    }
                 }
             } else {
                 // Narrow screens get one card per package instead of a table that has to scroll sideways
@@ -339,9 +361,9 @@ fun IndexPage() {
                                 }
                                 MutedText(listOfNotNull(entry.author.takeIf { it.isNotEmpty() }?.let { "by $it" }, entry.kind.label, formatSize(entry.size)).joinToString(" · "), Modifier.display(DisplayStyle.Block).margin(top = 0.3.cssRem))
                                 Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).flexWrap(FlexWrap.Wrap).margin(top = 0.7.cssRem).toAttrs()) {
-                                    GhostButton("View") { ctx.router.navigateTo(entry.viewUrl) }
-                                    if (entry.downloadUrl.isNotEmpty()) LinkButton("Download", entry.downloadUrl, download = true)
-                                    CopyButton(window.location.origin + entry.viewUrl, label = "Copy link", toast = "Link to ${entry.name} copied.")
+                                    GhostButton("View", plain = true) { ctx.router.navigateTo(entry.viewUrl) }
+                                    if (entry.downloadUrl.isNotEmpty()) LinkButton("Download", entry.downloadUrl, download = true, plain = true, onClick = { trackDownload(entry.path) })
+                                    CopyButton(window.location.origin + entry.viewUrl, label = "Copy link", toast = "Link to ${entry.name} copied.", plain = true)
                                 }
                             }
                         }
@@ -368,9 +390,9 @@ fun IndexPage() {
                                     Td { Text(formatSize(entry.size)) }
                                     Td {
                                         Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).justifyContent(JustifyContent.FlexEnd).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                                            GhostButton("View") { ctx.router.navigateTo(entry.viewUrl) }
-                                            if (entry.downloadUrl.isNotEmpty()) LinkButton("Download", entry.downloadUrl, download = true)
-                                            CopyButton(window.location.origin + entry.viewUrl, label = "Copy link", toast = "Link to ${entry.name} copied.")
+                                            GhostButton("View", plain = true) { ctx.router.navigateTo(entry.viewUrl) }
+                                            if (entry.downloadUrl.isNotEmpty()) LinkButton("Download", entry.downloadUrl, download = true, plain = true, onClick = { trackDownload(entry.path) })
+                                            CopyButton(window.location.origin + entry.viewUrl, label = "Copy link", toast = "Link to ${entry.name} copied.", plain = true)
                                         }
                                     }
                                 }

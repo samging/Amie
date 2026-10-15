@@ -23,6 +23,13 @@ import org.example.app.components.widgets.*
 import org.example.app.components.BadgeRow
 import org.example.app.components.LinkedAccountsView
 import org.example.app.components.PublicationsView
+import org.example.app.components.PackageStats
+import org.example.app.components.ProfileBanner
+import org.example.app.components.LikeButton
+import org.example.app.components.loadStats
+import org.example.app.components.loadMyLikes
+import org.example.app.components.statsLabel
+import org.example.app.components.trackDownload
 import org.example.app.config.AmieConfig
 import org.example.app.config.encodeURIComponent
 import org.jetbrains.compose.web.css.*
@@ -48,6 +55,7 @@ fun Dashboard() {
 
     var loggedInUser by remember { mutableStateOf<String?>(null) }
     var profile by remember { mutableStateOf<PublicProfile?>(null) }
+    val tab = rememberTab("packages", listOf("packages", "devices", "more", "errors"))
     var packages by remember { mutableStateOf<List<Json>>(emptyList()) }
     var devices by remember { mutableStateOf<List<Json>>(emptyList()) }
     var errors by remember { mutableStateOf<List<Json>>(emptyList()) }
@@ -58,6 +66,9 @@ fun Dashboard() {
     // Tree (folders as the store keeps them) or table; the choice is kept in this browser
     var treeView by remember { mutableStateOf(runCatching { window.localStorage.getItem("amie.packagesView") }.getOrNull() != "table") }
     var expanded by remember { mutableStateOf<Set<String>?>(null) }
+    var sort by remember { mutableStateOf(runCatching { window.localStorage.getItem("amie.packagesSort") }.getOrNull() ?: "name") }
+    var stats by remember { mutableStateOf<Map<String, PackageStats>>(emptyMap()) }
+    var myLikes by remember { mutableStateOf<Set<String>>(emptySet()) }
     val flash = remember {
         when {
             !uploaded.isNullOrEmpty() -> "$uploaded was uploaded. It is in the list below and on the downloads page."
@@ -106,6 +117,15 @@ fun Dashboard() {
         load(refresh = flash != null)
         loadErrors()
         profile = loadPublicProfile(username)
+        stats = loadStats(username)
+        myLikes = loadMyLikes()
+    }
+
+    fun likeChanged(path: String, liked: Boolean, count: Long) {
+        myLikes = if (liked) myLikes + path else myLikes - path
+        val old = stats[path] ?: PackageStats(path)
+        stats = stats + (path to old.copy(likes = count))
+        ClientCache.remove("stats:$username")
     }
 
     val isOwner = loggedInUser != null && loggedInUser == username
@@ -136,13 +156,15 @@ fun Dashboard() {
         }
 
         profile?.let { p ->
-            Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.8.cssRem).margin(bottom = 1.2.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
-                Avatar(p, size = 3.cssRem)
-                Div {
-                    Div(Modifier.fontSize(13.px).toAttrs()) { Text(p.displayName) }
-                    MutedText(listOfNotNull(if (p.nickname.isNotEmpty()) "@${p.username}" else null, p.fullName.takeIf { it.isNotEmpty() }).joinToString(" · ").ifEmpty { "No profile details yet" })
-                    BadgeRow(p.badges, Modifier.margin(top = 0.3.cssRem))
+            ProfileBanner(p) {
+                Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(1.cssRem).toAttrs()) {
+                    Avatar(p, size = 3.5.cssRem)
+                    Div {
+                        Div(Modifier.fontSize(14.px).toAttrs()) { Text(p.displayName) }
+                        MutedText(listOfNotNull(if (p.nickname.isNotEmpty()) "@${p.username}" else null, p.fullName.takeIf { it.isNotEmpty() }).joinToString(" · ").ifEmpty { "No profile details yet" }, Modifier.margin(top = 0.3.cssRem))
+                    }
                 }
+                BadgeRow(p.badges)
             }
         }
 
@@ -160,6 +182,17 @@ fun Dashboard() {
             }
         }
 
+        TabBar(
+            buildList {
+                add(Tab("packages", "Packages", packages.size))
+                add(Tab("devices", "Devices", devices.size))
+                add(Tab("more", "Links & publications"))
+                if (isOwner) add(Tab("errors", "App errors", errors.size, alert = true))
+            },
+            tab.value
+        ) { tab.value = it }
+
+        if (tab.value == "devices") {
         SectionHeading("Devices", id = "devices")
         if (devices.isEmpty()) {
             EmptyAction(
@@ -189,6 +222,8 @@ fun Dashboard() {
             }
         }
 
+        }
+        if (tab.value == "errors") {
         if (isOwner) {
             SectionHeading("Errors from your app", id = "errors") {
                 if (errors.isNotEmpty()) {
@@ -225,7 +260,7 @@ fun Dashboard() {
                                     Td { SpanText(message, Modifier.styleModifier { property("word-break", "break-word") }) }
                                     Td {
                                         Div(Modifier.display(DisplayStyle.Flex).justifyContent(JustifyContent.FlexEnd).toAttrs()) {
-                                            CopyButton(message, label = "Copy", done = "Copied", toast = "Error message copied.")
+                                            CopyButton(message, label = "Copy", done = "Copied", toast = "Error message copied.", plain = true)
                                         }
                                     }
                                 }
@@ -236,16 +271,26 @@ fun Dashboard() {
             }
         }
 
+        }
+        if (tab.value == "packages") {
         SectionHeading("Packages", id = "packages") {
             Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).alignItems(AlignItems.Center).flexWrap(FlexWrap.Wrap).toAttrs { attr("role", "group"); attr("aria-label", "How the packages are shown") }) {
                 Chip("Tree", treeView) { treeView = true; runCatching { window.localStorage.setItem("amie.packagesView", "tree") } }
                 Chip("Table", !treeView) { treeView = false; runCatching { window.localStorage.setItem("amie.packagesView", "table") } }
             }
+            SelectField(sort, listOf("name" to "Sort: name", "downloads" to "Sort: most downloaded", "likes" to "Sort: most liked"), { sort = it; runCatching { window.localStorage.setItem("amie.packagesSort", it) } }, Modifier.height(2.cssRem), ariaLabel = "Sort packages")
             if (packages.size > 4) {
                 TextField(filter, { filter = it }, placeholder = "Filter by name…", modifier = Modifier.width(16.cssRem).height(2.cssRem).attrsModifier { attr("data-search", ""); attr("aria-label", "Filter packages") })
             }
         }
-        val visible = packages.filter { filter.isBlank() || (it["name"] as? String ?: "").contains(filter.trim(), ignoreCase = true) }
+        val visible = packages.filter { filter.isBlank() || (it["name"] as? String ?: "").contains(filter.trim(), ignoreCase = true) }.let { list ->
+            when (sort) {
+                "downloads" -> list.sortedByDescending { stats[it["path"] as? String ?: ""]?.downloads ?: 0L }
+                "likes" -> list.sortedByDescending { stats[it["path"] as? String ?: ""]?.likes ?: 0L }
+                else -> list.sortedBy { (it["name"] as? String ?: "").lowercase() }
+            }
+        }
+        val signedIn = loggedInUser != null
         when {
             loading && packages.isEmpty() -> SkeletonRows(rows = 3, label = "Loading packages…")
             packages.isEmpty() -> EmptyAction(
@@ -261,14 +306,15 @@ fun Dashboard() {
                     path.removePrefix("uploads/").substringAfter('/', "").substringBeforeLast('/', "").ifEmpty { "files" }
                 }.toList().sortedBy { it.first.lowercase() }
                 val nodes = folders.map { (folder, items) ->
-                    TreeNode("folder:$folder", folder, plural(items.size, "file") + " · " + formatSize(items.sumOf { (it["size"] as? Number)?.toDouble() ?: 0.0 }), children = items.sortedBy { (it["name"] as? String ?: "").lowercase() }.map { item ->
+                    TreeNode("folder:$folder", folder, plural(items.size, "file") + " · " + formatSize(items.sumOf { (it["size"] as? Number)?.toDouble() ?: 0.0 }), children = items.map { item ->
                         val name = item["name"] as? String ?: "Unknown"
                         val path = item["path"] as? String ?: ""
                         val size = (item["size"] as? Number)?.toDouble() ?: 0.0
                         val downloadUrl = item["download_url"] as? String ?: item["downloadUrl"] as? String ?: ""
                         val kind = PackageKind.of(name)
                         val viewUrl = "/view?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}&from=dashboard&url=${encodeURIComponent(downloadUrl)}"
-                        TreeNode("file:$path", name, formatSize(size), badge = kind.label, icon = { KindIcon(kind) }, href = viewUrl, actions = {
+                        TreeNode("file:$path", name, listOfNotNull(formatSize(size), statsLabel(stats[path])).joinToString(" · "), badge = kind.label, icon = { KindIcon(kind) }, href = viewUrl, actions = {
+                            LikeButton(path, stats[path]?.likes ?: 0L, path in myLikes, signedIn) { liked, count -> likeChanged(path, liked, count) }
                             PackageActions(name, path, viewUrl, downloadUrl, isOwner, username, ctx, scope, onNotice = { text, kind -> notice = text; noticeKind = kind }, reload = { load(refresh = true) })
                         })
                     })
@@ -313,8 +359,20 @@ fun Dashboard() {
             HintText("Replace keeps the file name and swaps the content for everyone; Delete asks once before it removes the file.", Modifier.margin(top = 0.8.cssRem))
         }
 
-        profile?.let { p -> LinkedAccountsView(username, p.github, p.huggingFace) }
-        PublicationsView(username)
+        }
+        if (tab.value == "more") {
+            val p = profile
+            if (p != null && p.github.isEmpty() && p.huggingFace.isEmpty()) {
+                EmptyAction(
+                    "No linked accounts.",
+                    if (isOwner) "Add your GitHub and Hugging Face usernames on your profile and their public repositories and models show up here." else "$username has not linked GitHub or Hugging Face.",
+                    Modifier.margin(bottom = 1.5.cssRem),
+                    action = { if (isOwner) LinkButton("Edit profile", "/profile", primary = false) }
+                )
+            }
+            p?.let { LinkedAccountsView(username, it.github, it.huggingFace) }
+            PublicationsView(username)
+        }
     }
 }
 
@@ -325,13 +383,13 @@ private fun PackageActions(
     ctx: com.varabyte.kobweb.core.PageContext, scope: kotlinx.coroutines.CoroutineScope,
     onNotice: (String, BannerKind) -> Unit, reload: suspend () -> Unit,
 ) {
-    GhostButton("View") { ctx.router.navigateTo(viewUrl) }
-    if (downloadUrl.isNotEmpty()) LinkButton("Download", downloadUrl, download = true, primary = false)
+    GhostButton("View", plain = true) { ctx.router.navigateTo(viewUrl) }
+    if (downloadUrl.isNotEmpty()) LinkButton("Download", downloadUrl, download = true, plain = true, onClick = { trackDownload(path) })
     if (isOwner) {
-        GhostButton("Replace") {
+        GhostButton("Replace", plain = true) {
             ctx.router.navigateTo("/edit?package=${encodeURIComponent(path)}&username=${encodeURIComponent(username)}")
         }
-        ConfirmDangerButton("Delete", "Delete $name for everyone?", "Yes, delete") {
+        ConfirmDangerButton("Delete", "Delete $name for everyone?", "Yes, delete", plain = true) {
             scope.launch {
                 onNotice("Deleting $name…", BannerKind.INFO)
                 val token = AuthClient.accessToken()

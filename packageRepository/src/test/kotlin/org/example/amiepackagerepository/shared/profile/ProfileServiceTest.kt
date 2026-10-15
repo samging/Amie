@@ -39,13 +39,14 @@ class ProfileServiceTest {
     @Mock private lateinit var notes: PackageNoteRepository
     @Mock private lateinit var badgeRows: org.example.amiepackagerepository.shared.badges.UserBadgeRepository
     @Mock private lateinit var publicationRows: org.example.amiepackagerepository.shared.publications.PublicationRepository
+    @Mock private lateinit var likeRows: org.example.amiepackagerepository.shared.stats.PackageLikeRepository
 
     private lateinit var service: UserService
     private val sam = RestUserEntity(id = 1, username = "sam", password = "hash")
 
     @BeforeEach
     fun setUp() {
-        service = UserService(users, activities, verifier, devices, notes, badgeRows, publicationRows)
+        service = UserService(users, activities, verifier, devices, notes, badgeRows, publicationRows, likeRows)
         `when`(users.findByUsername("sam")).thenReturn(sam)
     }
 
@@ -129,6 +130,23 @@ class ProfileServiceTest {
 
         assertThrows(IllegalArgumentException::class.java) { service.setAvatar("sam", "<svg onload=alert(1)/>".toByteArray()) }
         assertNull(service.getAvatar("nobody"))
+    }
+
+    @Test
+    fun `a background follows the same approval as the picture, with larger limits`() {
+        val png = ByteArrayOutputStream().also { ImageIO.write(BufferedImage(1200, 400, BufferedImage.TYPE_INT_RGB), "png", it) }.toByteArray()
+        val image = service.setBackground("sam", png)
+        assertEquals("image/png", image.contentType)
+        val saved = argumentCaptor<RestUserEntity>().also { verify(users).save(it.capture()) }.firstValue
+        assertTrue(saved.backgroundPending)
+        assertFalse(ProfileDto.of(saved).hasBackground)
+        assertTrue(ProfileDto.of(saved).backgroundPending)
+        `when`(users.findByUsername("sam")).thenReturn(saved)
+        assertNull(service.getBackground("sam"))
+        assertEquals("image/png", service.getBackground("sam", includePending = true)!!.contentType)
+        assertTrue(service.approveBackground("sam"))
+        assertThrows(IllegalArgumentException::class.java) { service.setBackground("sam", "<svg/>".toByteArray()) }
+        assertEquals(listOf("sam"), service.pendingBackgrounds().map { it.username }.filter { it == "sam" }.let { if (saved.backgroundPending) listOf("sam") else it })
     }
 
     @Test

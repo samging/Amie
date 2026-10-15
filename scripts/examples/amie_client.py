@@ -19,6 +19,8 @@
     python3 scripts/examples/amie_client.py admin avatars | admin approve eve | admin badge eve verified | admin unbadge eve verified
     python3 scripts/examples/amie_client.py pubs list [user] | pubs add "Title" "Venue" 2026 https://… 10.1234/x | pubs delete 3
     python3 scripts/examples/amie_client.py link octocat hf-handle                # GitHub and Hugging Face usernames ("" unlinks)
+    python3 scripts/examples/amie_client.py background set banner.png | background clear   # waits for an admin like the picture
+    python3 scripts/examples/amie_client.py like uploads/sam/jar/echo.jar | likes | stats sam
 
 The token from `login`/`keycloak` is kept in ~/.amie-token.json and used by every other command, or pass
 AMIE_TOKEN. Addresses: AMIE_BACKEND_URL (default http://localhost:8090), KEYCLOAK_URL (http://localhost:8080),
@@ -275,6 +277,30 @@ class AmieClient:
         except NotFound:
             return False
 
+    # -- background, likes, download counts
+    def set_background(self, file_name, data):
+        username = self.me()["username"]
+        boundary = "----amie" + uuid.uuid4().hex
+        parts = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\n"
+                 f"Content-Type: application/octet-stream\r\n\r\n").encode() + data + f"\r\n--{boundary}--\r\n".encode()
+        return self._json("POST", "/background", raw=parts, content_type=f"multipart/form-data; boundary={boundary}", params={"username": username})
+
+    def clear_background(self):
+        try:
+            self.request("DELETE", "/background", params={"username": self.me()["username"]})
+            return True
+        except NotFound:
+            return False
+
+    def toggle_like(self, package_path):
+        return self._json("POST", "/likes", params={"path": package_path})
+
+    def likes(self):
+        return self._json("GET", "/likes")
+
+    def stats(self, username):
+        return self._json("GET", "/stats", params={"username": username}, auth=False)
+
     # -- administration (a Keycloak token with the admin role; `keycloak` login, not `login`)
     def admin_users(self):
         return self._json("GET", "/admin/users")
@@ -379,6 +405,13 @@ def main(argv):
             else: print("usage: notes list <path>|add <path> <text>|delete <id>"); return 2
         elif cmd == "nick": out(client.set_nickname(args[0] if args else ""))
         elif cmd == "link": out(client.link_accounts(args[0] if args else "", args[1] if len(args) > 1 else ""))
+        elif cmd == "background":
+            if args[0] == "set": out(client.set_background(os.path.basename(args[1]), open(args[1], "rb").read()))
+            elif args[0] == "clear": out("removed" if client.clear_background() else "there was none")
+            else: print("usage: background set <file>|clear"); return 2
+        elif cmd == "like": out(client.toggle_like(args[0]))
+        elif cmd == "likes": out(client.likes())
+        elif cmd == "stats": out(client.stats(args[0]))
         elif cmd == "pubs":
             sub = args[0]
             if sub == "list": out(client.publications(args[1] if len(args) > 1 else None))

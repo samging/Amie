@@ -35,6 +35,12 @@ data class RestUserEntity(
     val avatarType: String? = null,
     /** Pictures show only after an administrator approved them; null or false is "waiting". */
     val avatarApproved: Boolean? = null,
+    /** A banner shown over the profile header; approved by an administrator like the picture. */
+    @Column(columnDefinition = "bytea")
+    val background: ByteArray? = null,
+    @Column(length = 32)
+    val backgroundType: String? = null,
+    val backgroundApproved: Boolean? = null,
     /** Linked accounts, by handle (the person says who they are elsewhere; nothing is verified). */
     @Column(length = 64)
     val githubLogin: String? = "",
@@ -43,6 +49,9 @@ data class RestUserEntity(
 ) {
     val avatarShown: Boolean get() = avatar != null && avatarApproved == true
     val avatarPending: Boolean get() = avatar != null && avatarApproved != true
+    val backgroundShown: Boolean get() = background != null && backgroundApproved == true
+    val backgroundPending: Boolean get() = background != null && backgroundApproved != true
+    val backgroundVersion: String get() = background?.let { java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(it)).take(12) } ?: ""
 
     /** A short tag of the current picture, for cache-busting URLs; empty when there is none. */
     val avatarVersion: String get() = avatar?.let { java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(it)).take(12) } ?: ""

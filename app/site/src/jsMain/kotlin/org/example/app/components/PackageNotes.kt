@@ -160,7 +160,7 @@ fun PackageNotes(packagePath: String, owner: String) {
                             Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).fontSize(9.px).toAttrs()) {
                                 A("/dashboard?username=${encodeURIComponent(note.author)}", attrs = Modifier.fontWeight(com.varabyte.kobweb.compose.css.FontWeight.SemiBold).toAttrs()) { Text(profile.displayName) }
                                 if (note.authorNickname.isNotEmpty()) MutedText("@${note.author}", Modifier.fontSize(8.px))
-                                if (note.author == owner) Badge("author")
+                                if (note.author == owner) Badge("author", color = SiteTones.ofName(owner))
                                 MutedText(formatRelative(note.createdAt), Modifier.fontSize(8.px))
                                 if (me != null && (me == note.author || me == owner)) {
                                     Span(Modifier.styleModifier { property("margin-left", "auto") }.toAttrs()) {

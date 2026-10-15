@@ -43,7 +43,7 @@ class RateLimitFilter(
 
     companion object {
         private val SIGNIN = setOf("/login", "/register", "/handle-login-error", "/api/sso-register")
-        private val UPLOAD = setOf("/upload", "/edit", "/avatar")
+        private val UPLOAD = setOf("/upload", "/edit", "/avatar", "/background")
 
         fun ruleFor(method: String, path: String): String = when {
             method == "POST" && path in SIGNIN -> "signin"

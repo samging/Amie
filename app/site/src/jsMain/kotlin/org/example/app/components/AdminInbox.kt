@@ -31,7 +31,10 @@ import org.jetbrains.compose.web.dom.Span
 import org.jetbrains.compose.web.dom.Text
 
 /** The admin's inbox as `/api/admin-inbox` answers it. */
-@Serializable data class PendingPicture(val username: String = "", val nickname: String = "", val contentType: String = "", val bytes: Int = 0)
+@Serializable data class PendingPicture(val username: String = "", val nickname: String = "", val contentType: String = "", val bytes: Int = 0, val kind: String = "avatar") {
+    val isBackground: Boolean get() = kind == "background"
+    val what: String get() = if (isBackground) "background" else "picture"
+}
 @Serializable data class AdminInbox(val pendingAvatars: Int = 0, val notesLastDay: Long = 0, val total: Long = 0, val pending: List<PendingPicture> = emptyList(), val notes: List<Note> = emptyList())
 
 private val inboxJson = Json { ignoreUnknownKeys = true }
@@ -83,7 +86,7 @@ fun AdminInboxLink(active: Boolean) {
  * [large] shows it at full size; otherwise a thumbnail that opens the large view on click.
  */
 @Composable
-fun PendingPicture(username: String, large: Boolean = false, onOpen: (() -> Unit)? = null) {
+fun PendingPicture(username: String, large: Boolean = false, onOpen: (() -> Unit)? = null, kind: String = "avatar") {
     var objectUrl by remember { mutableStateOf<String?>(null) }
     var size by remember { mutableStateOf("") }
     LaunchedEffect(username) {
@@ -92,7 +95,7 @@ fun PendingPicture(username: String, large: Boolean = false, onOpen: (() -> Unit
             val headers = js("{}")
             headers["Authorization"] = "Bearer $token"
             val init = org.w3c.fetch.RequestInit(method = "GET", headers = headers)
-            val response = window.fetch(AmieConfig.api("avatar-preview?username=${encodeURIComponent(username)}"), init).await()
+            val response = window.fetch(AmieConfig.api((if (kind == "background") "background-preview" else "avatar-preview") + "?username=${encodeURIComponent(username)}"), init).await()
             if (response.ok) objectUrl = org.w3c.dom.url.URL.createObjectURL(response.blob().await())
         } catch (e: Throwable) { objectUrl = null }
     }
@@ -104,7 +107,7 @@ fun PendingPicture(username: String, large: Boolean = false, onOpen: (() -> Unit
     }
     Img(
         src = url, alt = "Picture uploaded by $username, awaiting approval",
-        attrs = Modifier.then(if (large) Modifier.styleModifier { property("max-width", "min(90vw, 32rem)"); property("min-width", "min(80vw, 16rem)"); property("min-height", "16rem"); property("image-rendering", "auto") }.maxHeight(70.vh) else Modifier.size(4.cssRem).cursor(Cursor.Pointer))
+        attrs = Modifier.then(if (large) Modifier.styleModifier { property("max-width", "min(90vw, 40rem)"); property("min-width", "min(80vw, 16rem)"); property("min-height", "12rem"); property("image-rendering", "auto") }.maxHeight(70.vh) else if (kind == "background") Modifier.width(7.cssRem).height(4.cssRem).cursor(Cursor.Pointer) else Modifier.size(4.cssRem).cursor(Cursor.Pointer))
             .border(2.px, LineStyle.Dashed, INBOX_RED).objectFit(ObjectFit.Contain).backgroundColor(Colors.Black)
             .toAttrs {
                 attr("title", if (large) "" else "Open at full size")
@@ -130,10 +133,10 @@ fun PendingPictureViewer(picture: PendingPicture, onApprove: () -> Unit, onRejec
     ) {
         Card(Modifier.maxWidth(36.cssRem).onClick { it.stopPropagation() }) {
             Div(Modifier.display(DisplayStyle.Flex).flexDirection(FlexDirection.Column).alignItems(AlignItems.Center).gap(0.6.cssRem).toAttrs()) {
-                PendingPicture(picture.username, large = true)
+                PendingPicture(picture.username, large = true, kind = picture.kind)
                 Div(Modifier.textAlign(com.varabyte.kobweb.compose.css.TextAlign.Center).toAttrs()) {
                     A("/dashboard?username=${encodeURIComponent(picture.username)}", attrs = Modifier.fontWeight(FontWeight.Medium).toAttrs()) { Text(picture.nickname.ifEmpty { picture.username }) }
-                    MutedText(listOfNotNull(picture.nickname.takeIf { it.isNotEmpty() }?.let { "@${picture.username}" }, picture.contentType, formatSize(picture.bytes.toDouble())).joinToString(" · "), Modifier.fontSize(8.px))
+                    MutedText(listOfNotNull(picture.what, picture.nickname.takeIf { it.isNotEmpty() }?.let { "@${picture.username}" }, picture.contentType, formatSize(picture.bytes.toDouble())).joinToString(" · "), Modifier.fontSize(8.px))
                 }
                 Div(Modifier.display(DisplayStyle.Flex).gap(0.5.cssRem).flexWrap(FlexWrap.Wrap).justifyContent(JustifyContent.Center).toAttrs()) {
                     PrimaryButton("Approve") { onApprove() }
@@ -150,10 +153,10 @@ fun PendingPictureViewer(picture: PendingPicture, onApprove: () -> Unit, onRejec
 fun PendingPictureCard(picture: PendingPicture, onView: () -> Unit, onApprove: () -> Unit, onReject: () -> Unit) {
     Card(Modifier.padding(0.7.cssRem, 1.cssRem).minWidth(16.cssRem)) {
         Div(Modifier.display(DisplayStyle.Flex).alignItems(AlignItems.Center).gap(0.8.cssRem).toAttrs()) {
-            PendingPicture(picture.username, onOpen = onView)
+            PendingPicture(picture.username, onOpen = onView, kind = picture.kind)
             Div(Modifier.minWidth(0.px).toAttrs()) {
                 A("/dashboard?username=${encodeURIComponent(picture.username)}", attrs = Modifier.fontWeight(FontWeight.Medium).toAttrs()) { Text(picture.nickname.ifEmpty { picture.username }) }
-                MutedText(listOfNotNull(picture.nickname.takeIf { it.isNotEmpty() }?.let { "@${picture.username}" }, picture.contentType, formatSize(picture.bytes.toDouble())).joinToString(" · "), Modifier.fontSize(8.px))
+                MutedText(listOfNotNull(picture.what, picture.nickname.takeIf { it.isNotEmpty() }?.let { "@${picture.username}" }, picture.contentType, formatSize(picture.bytes.toDouble())).joinToString(" · "), Modifier.fontSize(8.px))
                 Div(Modifier.display(DisplayStyle.Flex).gap(0.4.cssRem).margin(top = 0.5.cssRem).flexWrap(FlexWrap.Wrap).toAttrs()) {
                     GhostButton("View") { onView() }
                     PrimaryButton("Approve") { onApprove() }
@@ -202,9 +205,9 @@ fun AdminInboxPanel(modifier: Modifier = Modifier) {
             box.total == 0L -> MutedText("Nothing is waiting: no pictures to approve and no notes in the last day.")
             else -> {
                 if (box.pending.isNotEmpty()) {
-                    Div(Modifier.fontSize(10.px).margin(topBottom = 0.5.cssRem).toAttrs()) { Text(plural(box.pending.size, "picture") + " to approve") }
+                    Div(Modifier.fontSize(10.px).margin(topBottom = 0.5.cssRem).toAttrs()) { Text(plural(box.pending.size, "image") + " to approve") }
                     Div(Modifier.display(DisplayStyle.Flex).flexWrap(FlexWrap.Wrap).gap(0.6.cssRem).toAttrs()) {
-                        for (p in box.pending) PendingPictureCard(p, onView = { viewing = p }, onApprove = { act(p, "approve-avatar", "Picture of ${p.username} approved.") }, onReject = { act(p, "clear-avatar", "Picture of ${p.username} removed.") })
+                        for (p in box.pending) PendingPictureCard(p, onView = { viewing = p }, onApprove = { act(p, if (p.isBackground) "approve-background" else "approve-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} approved.") }, onReject = { act(p, if (p.isBackground) "clear-background" else "clear-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} removed.") })
                     }
                 }
                 if (box.notesLastDay > 0) {
@@ -224,5 +227,5 @@ fun AdminInboxPanel(modifier: Modifier = Modifier) {
             }
         }
     }
-    viewing?.let { p -> PendingPictureViewer(p, onApprove = { act(p, "approve-avatar", "Picture of ${p.username} approved.") }, onReject = { act(p, "clear-avatar", "Picture of ${p.username} removed.") }, onClose = { viewing = null }) }
+    viewing?.let { p -> PendingPictureViewer(p, onApprove = { act(p, if (p.isBackground) "approve-background" else "approve-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} approved.") }, onReject = { act(p, if (p.isBackground) "clear-background" else "clear-avatar", "${p.what.replaceFirstChar { it.uppercase() }} of ${p.username} removed.") }, onClose = { viewing = null }) }
 }

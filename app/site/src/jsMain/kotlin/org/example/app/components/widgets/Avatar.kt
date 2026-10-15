@@ -30,6 +30,9 @@ data class PublicProfile(
     val github: String = "",
     val huggingFace: String = "",
     val badges: List<String> = emptyList(),
+    val hasBackground: Boolean = false,
+    val backgroundVersion: String = "",
+    val backgroundPending: Boolean = false,
 ) {
     val displayName: String get() = nickname.ifBlank { username }
 }
@@ -100,9 +103,6 @@ fun Avatar(profile: PublicProfile, size: CSSLengthValue = 2.5.cssRem, modifier: 
             attrs = base.objectFit(ObjectFit.Cover).backgroundColor(Colors.Black).toAttrs { attr("loading", "lazy"); attr("referrerpolicy", "no-referrer") }
         )
     } else {
-        Div(
-            base.display(DisplayStyle.Flex).alignItems(AlignItems.Center).justifyContent(JustifyContent.Center)
-                .backgroundColor(Colors.White).color(Colors.Black).fontSize(11.px).toAttrs { attr("aria-hidden", "true") }
-        ) { Text(initialsOf(profile.fullName.ifBlank { profile.nickname }, profile.username)) }
+        InitialsMark(initialsOf(profile.fullName.ifBlank { profile.nickname }, profile.username), SiteTones.ofName(profile.username), size, modifier)
     }
 }
